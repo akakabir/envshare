@@ -1,0 +1,6 @@
+{
+  "name": "EnvShare",
+  "description": "Secure portal where teams store, share, and track environment variables.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,137 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    // Default deny all unknown collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User private profiles
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && incoming().uid == userId
+        && incoming().email is string
+        && incoming().email.size() <= 200
+        && (!('displayName' in incoming()) || (incoming().displayName is string && incoming().displayName.size() <= 100));
+      allow update: if isOwner(userId)
+        && incoming().uid == existing().uid
+        && incoming().email == existing().email;
+      allow delete: if isOwner(userId);
+    }
+
+    // User lookup directory by email for sharing projects
+    match /userLookup/{lookupKey} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn()
+        && incoming().uid == request.auth.uid
+        && incoming().email is string
+        && incoming().email.size() <= 200;
+      allow delete: if isSignedIn() && existing().uid == request.auth.uid;
+    }
+
+    // Project workspaces
+    match /projects/{projectId} {
+      allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+      allow get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+      allow create: if isSignedIn()
+        && isValidId(projectId)
+        && incoming().id == projectId
+        && incoming().ownerId == request.auth.uid
+        && incoming().ownerEmail is string
+        && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
+        && (!('description' in incoming()) || (incoming().description is string && incoming().description.size() <= 500))
+        && incoming().memberUids is list && incoming().memberUids.size() <= 50
+        && (request.auth.uid in incoming().memberUids)
+        && incoming().memberEmails is list && incoming().memberEmails.size() <= 50;
+      allow update: if isSignedIn()
+        && isValidId(projectId)
+        && (existing().ownerId == request.auth.uid || request.auth.uid in existing().memberUids)
+        && incoming().id == existing().id
+        && incoming().ownerId == existing().ownerId
+        && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
+        && (!('description' in incoming()) || (incoming().description is string && incoming().description.size() <= 500))
+        && incoming().memberUids is list && incoming().memberUids.size() <= 50
+        && (existing().ownerId in incoming().memberUids)
+        && incoming().memberEmails is list && incoming().memberEmails.size() <= 50;
+      allow delete: if isSignedIn()
+        && isValidId(projectId)
+        && existing().ownerId == request.auth.uid;
+
+      // Subcollection: Environments
+      match /environments/{environmentId} {
+        allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+        allow get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+        allow create: if isSignedIn()
+          && isValidId(environmentId)
+          && incoming().id == environmentId
+          && incoming().projectId == projectId
+          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
+          && incoming().memberUids is list
+          && (request.auth.uid in incoming().memberUids)
+          && (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids);
+        allow update: if isSignedIn()
+          && isValidId(environmentId)
+          && (request.auth.uid in existing().memberUids)
+          && incoming().id == existing().id
+          && incoming().projectId == existing().projectId
+          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100;
+        allow delete: if isSignedIn()
+          && isValidId(environmentId)
+          && (request.auth.uid in existing().memberUids);
+
+        // Nested Subcollection: Variables
+        match /variables/{variableId} {
+          allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+          allow get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+          allow create: if isSignedIn()
+            && isValidId(variableId)
+            && incoming().id == variableId
+            && incoming().projectId == projectId
+            && incoming().environmentId == environmentId
+            && incoming().key is string && incoming().key.size() > 0 && incoming().key.size() <= 150
+            && incoming().key.matches('^[a-zA-Z0-9_]+$')
+            && incoming().value is string && incoming().value.size() <= 10000
+            && incoming().isSensitive is bool
+            && incoming().memberUids is list
+            && (request.auth.uid in incoming().memberUids)
+            && (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids);
+          allow update: if isSignedIn()
+            && isValidId(variableId)
+            && (request.auth.uid in existing().memberUids)
+            && incoming().id == existing().id
+            && incoming().projectId == existing().projectId
+            && incoming().environmentId == existing().environmentId
+            && incoming().key is string && incoming().key.size() > 0 && incoming().key.size() <= 150
+            && incoming().key.matches('^[a-zA-Z0-9_]+$')
+            && incoming().value is string && incoming().value.size() <= 10000
+            && incoming().isSensitive is bool;
+          allow delete: if isSignedIn()
+            && isValidId(variableId)
+            && (request.auth.uid in existing().memberUids);
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,52 @@
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName?: string;
+  photoURL?: string;
+  createdAt: string;
+}
+
+export interface UserLookup {
+  uid: string;
+  email: string;
+  displayName?: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string;
+  ownerId: string;
+  ownerEmail: string;
+  memberUids: string[];
+  memberEmails: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Environment {
+  id: string;
+  name: string;
+  projectId: string;
+  memberUids: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EnvVariable {
+  id: string;
+  key: string;
+  value: string;
+  isSensitive: boolean;
+  environmentId: string;
+  projectId: string;
+  memberUids: string[];
+  createdAt: string;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export type ViewState = 
+  | { type: 'dashboard' }
+  | { type: 'project'; projectId: string }
+  | { type: 'settings' };

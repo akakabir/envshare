@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account profile document",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "UserLookup": {
+      "title": "UserLookup",
+      "description": "Directory entry to resolve user email to UID for collaboration",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["uid", "email"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Environment variable project workspace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "ownerId": { "type": "string" },
+        "ownerEmail": { "type": "string", "format": "email" },
+        "memberUids": { "type": "array" },
+        "memberEmails": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "ownerId", "ownerEmail", "memberUids", "memberEmails", "createdAt"]
+    },
+    "Environment": {
+      "title": "Environment",
+      "description": "Project environment deployment target (e.g. Development, Production)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "projectId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "projectId", "memberUids", "createdAt"]
+    },
+    "EnvVariable": {
+      "title": "EnvVariable",
+      "description": "Key-value environment variable, optionally encrypted with AES-256-GCM",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "key": { "type": "string", "minLength": 1, "maxLength": 150, "pattern": "^[A-Za-z0-9_]+$" },
+        "value": { "type": "string", "maxLength": 10000 },
+        "isSensitive": { "type": "boolean" },
+        "environmentId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "updatedBy": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["id", "key", "value", "isSensitive", "environmentId", "projectId", "memberUids", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Private user account profile"
+    },
+    "/userLookup/{email}": {
+      "schema": "UserLookup",
+      "description": "Email-to-UID resolver for team invites"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Projects managed by owners and shared with members"
+    },
+    "/projects/{projectId}/environments/{environmentId}": {
+      "schema": "Environment",
+      "description": "Environments inside a project"
+    },
+    "/projects/{projectId}/environments/{environmentId}/variables/{variableId}": {
+      "schema": "EnvVariable",
+      "description": "Environment variables with sensitive encryption support"
+    }
+  }
+}
