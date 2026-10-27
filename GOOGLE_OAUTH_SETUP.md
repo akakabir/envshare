@@ -48,11 +48,32 @@ Firebase Authentication uses a Google Cloud OAuth 2.0 Client ID behind the scene
      - `https://your-production-domain.com`
    - Under **Authorized redirect URIs**, verify or add the Firebase Auth handler URL:
      - `https://<project-id>.firebaseapp.com/__/auth/handler`
-4. Click **Save**.
+4. Copy the **Client ID** value and paste it into `firebase-applet-config.json` as `oAuthClientId`.
+
+> ⚠️ **Never use the Client Secret on the frontend.** The OAuth Client Secret must only ever be used on a server (e.g., Cloud Functions, Cloud Run). It must never appear in source code, `.env` files committed to the repo, or any variable prefixed `VITE_` (Vite embeds those into the JS bundle).
 
 ---
 
-## 4. Restrict Browser API Key by HTTP Referrer
+## 4. Where OAuth Config Lives in This App
+
+EnvShare stores the **public** OAuth Client ID in `firebase-applet-config.json` under `oAuthClientId`. This file is committed to source control because it only contains public, non-secret Firebase configuration — the same as Firebase's own `firebaseConfig` object.
+
+```json
+{
+  "oAuthClientId": "183260515879-xxxx.apps.googleusercontent.com",
+  ...
+}
+```
+
+The app reads it directly at build time — no `VITE_` environment variables are involved. This means:
+
+- ✅ **Client ID** — stored in `firebase-applet-config.json`, safe to be public
+- ❌ **Client Secret** — belongs on a backend server only, never in frontend code
+- ✅ **Redirect URI** — derived automatically from `authDomain` in `firebase-applet-config.json`
+
+---
+
+## 5. Restrict Browser API Key by HTTP Referrer
 
 To prevent unauthorized quota consumption and misuse of your Firebase web API key:
 
@@ -73,7 +94,7 @@ To prevent unauthorized quota consumption and misuse of your Firebase web API ke
 
 ---
 
-## 5. Deploy Updated Firestore Security Rules
+## 6. Deploy Updated Firestore Security Rules
 
 EnvShare includes hardened Firestore security rules (`firestore.rules`) enforcing project membership isolation, owner-only collaborator management, and verified user directory lookup.
 
@@ -93,8 +114,9 @@ firebase deploy --only firestore:rules
 
 ---
 
-## 6. Architecture & Security Notes
+## 7. Architecture & Security Notes
 
 - **Popup & Redirect Fallback**: EnvShare attempts `signInWithPopup` with prompt set to `select_account`. If the browser blocks the popup window (`auth/popup-blocked`), it automatically falls back to `signInWithRedirect`, and resumes the session on mount via `getRedirectResult`.
 - **Account Deletion Safeguards**: For users signed in via Google OAuth, account deletion triggers `reauthenticateWithPopup(user, googleProvider)` to comply with Firebase's sensitive operation re-authentication requirements.
 - **Client-Side Encryption**: Secrets are encrypted client-side using AES-256-GCM via PBKDF2 with no hardcoded master secrets in the client bundle.
+- **No Secrets in Frontend**: Anything prefixed `VITE_` is embedded verbatim into the compiled JavaScript bundle and is visible to every visitor. OAuth Client Secrets, database passwords, and server-side API keys must never use the `VITE_` prefix.

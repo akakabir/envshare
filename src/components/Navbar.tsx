@@ -1,6 +1,6 @@
 import React from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { Sprout, KeyRound, LayoutDashboard, Settings, LogOut, Leaf } from 'lucide-react';
+import { Sprout, KeyRound, LayoutDashboard, Settings, LogOut, Leaf, FileText, Shield } from 'lucide-react';
 import { ViewState } from '../types.ts';
 
 interface NavbarProps {
@@ -60,6 +60,28 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <LayoutDashboard className="w-3.5 h-3.5" />
               <span>Projects</span>
+            </button>
+            <button
+              onClick={() => onNavigate({ type: 'privacy' })}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition cursor-pointer ${
+                viewState.type === 'privacy'
+                  ? 'bg-stone-900 text-white shadow-xs'
+                  : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>Privacy</span>
+            </button>
+            <button
+              onClick={() => onNavigate({ type: 'terms' })}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-full transition cursor-pointer ${
+                viewState.type === 'terms'
+                  ? 'bg-stone-900 text-white shadow-xs'
+                  : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Terms</span>
             </button>
           </nav>
         </div>

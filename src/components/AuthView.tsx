@@ -25,12 +25,16 @@ interface AuthViewProps {
   initialMode?: 'signin' | 'signup';
   onSuccess?: () => void;
   onBackToLanding?: () => void;
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
 }
 
 export const AuthView: React.FC<AuthViewProps> = ({
   initialMode = 'signin',
   onSuccess,
   onBackToLanding,
+  onOpenTerms,
+  onOpenPrivacy,
 }) => {
   const [isSignUp, setIsSignUp] = useState(initialMode === 'signup');
   const [email, setEmail] = useState('');
@@ -297,6 +301,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
           </div>
 
           {/* Security Assurance Badges */}
+          {/* Security Assurance Badges */}
           <div className="mt-8 pt-6 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-500">
             <span className="flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-emerald-600" />
@@ -311,6 +316,32 @@ export const AuthView: React.FC<AuthViewProps> = ({
               Audit Log
             </span>
           </div>
+
+          {(onOpenTerms || onOpenPrivacy) && (
+            <p className="mt-6 text-center text-[11px] text-stone-400 leading-normal">
+              By continuing, you agree to EnvShare's{' '}
+              {onOpenTerms && (
+                <button
+                  type="button"
+                  onClick={onOpenTerms}
+                  className="text-stone-600 hover:text-emerald-800 underline transition cursor-pointer"
+                >
+                  Terms of Service
+                </button>
+              )}
+              {onOpenTerms && onOpenPrivacy && ' and '}
+              {onOpenPrivacy && (
+                <button
+                  type="button"
+                  onClick={onOpenPrivacy}
+                  className="text-stone-600 hover:text-emerald-800 underline transition cursor-pointer"
+                >
+                  Privacy Policy
+                </button>
+              )}
+              .
+            </p>
+          )}
         </div>
       </div>
     </div>

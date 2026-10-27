@@ -27,6 +27,8 @@ import forestRiverBg from '../assets/images/forest_river_bg_1793112345410.jpg';
 
 interface LandingPageProps {
   onOpenAuth: (mode: 'signin' | 'signup') => void;
+  onOpenTerms?: () => void;
+  onOpenPrivacy?: () => void;
 }
 
 interface DemoVar {
@@ -58,7 +60,11 @@ const INITIAL_DEMO_DATA: { [env: string]: DemoVar[] } = {
   ],
 };
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onOpenAuth }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({
+  onOpenAuth,
+  onOpenTerms,
+  onOpenPrivacy,
+}) => {
   // Mac Window Interactive States
   const [isClosed, setIsClosed] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -755,10 +761,28 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenAuth }) => {
             <span className="font-bold text-stone-800">EnvShare</span>
             <span>— Organic Environment Variables Portal</span>
           </div>
-          <div className="flex items-center gap-4 text-stone-500">
+          <div className="flex flex-wrap items-center justify-center gap-3 text-stone-500">
             <span>Client-side AES-256-GCM</span>
             <span>•</span>
-            <span>Earth & Forest Eco-Vault</span>
+            {onOpenTerms && (
+              <button
+                type="button"
+                onClick={onOpenTerms}
+                className="hover:text-emerald-900 transition underline cursor-pointer"
+              >
+                Terms of Service
+              </button>
+            )}
+            {onOpenTerms && onOpenPrivacy && <span>•</span>}
+            {onOpenPrivacy && (
+              <button
+                type="button"
+                onClick={onOpenPrivacy}
+                className="hover:text-emerald-900 transition underline cursor-pointer"
+              >
+                Privacy Policy
+              </button>
+            )}
           </div>
         </div>
       </footer>

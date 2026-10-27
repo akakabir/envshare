@@ -8,13 +8,15 @@ import { AuthView } from './components/AuthView.tsx';
 import { Dashboard } from './components/Dashboard.tsx';
 import { ProjectDetail } from './components/ProjectDetail.tsx';
 import { AccountSettings } from './components/AccountSettings.tsx';
+import { TermsOfService } from './components/TermsOfService.tsx';
+import { PrivacyPolicy } from './components/PrivacyPolicy.tsx';
 import { KeyRound, Sprout } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewState, setViewState] = useState<ViewState>({ type: 'dashboard' });
-  const [authMode, setAuthMode] = useState<'landing' | 'signin' | 'signup'>('landing');
+  const [authMode, setAuthMode] = useState<'landing' | 'signin' | 'signup' | 'terms' | 'privacy'>('landing');
 
   useEffect(() => {
     getRedirectResult(auth)
@@ -63,8 +65,34 @@ export default function App() {
 
   // Unauthenticated user flow
   if (!user) {
+    if (authMode === 'terms') {
+      return (
+        <TermsOfService
+          onBack={() => setAuthMode('landing')}
+          onOpenPrivacy={() => setAuthMode('privacy')}
+          onOpenAuth={(mode) => setAuthMode(mode)}
+        />
+      );
+    }
+
+    if (authMode === 'privacy') {
+      return (
+        <PrivacyPolicy
+          onBack={() => setAuthMode('landing')}
+          onOpenTerms={() => setAuthMode('terms')}
+          onOpenAuth={(mode) => setAuthMode(mode)}
+        />
+      );
+    }
+
     if (authMode === 'landing') {
-      return <LandingPage onOpenAuth={(mode) => setAuthMode(mode)} />;
+      return (
+        <LandingPage
+          onOpenAuth={(mode) => setAuthMode(mode)}
+          onOpenTerms={() => setAuthMode('terms')}
+          onOpenPrivacy={() => setAuthMode('privacy')}
+        />
+      );
     }
 
     return (
@@ -72,6 +100,8 @@ export default function App() {
         initialMode={authMode}
         onSuccess={() => setViewState({ type: 'dashboard' })}
         onBackToLanding={() => setAuthMode('landing')}
+        onOpenTerms={() => setAuthMode('terms')}
+        onOpenPrivacy={() => setAuthMode('privacy')}
       />
     );
   }
@@ -110,6 +140,20 @@ export default function App() {
               setAuthMode('landing');
               setViewState({ type: 'dashboard' });
             }}
+          />
+        )}
+
+        {viewState.type === 'terms' && (
+          <TermsOfService
+            onBack={() => setViewState({ type: 'dashboard' })}
+            onOpenPrivacy={() => setViewState({ type: 'privacy' })}
+          />
+        )}
+
+        {viewState.type === 'privacy' && (
+          <PrivacyPolicy
+            onBack={() => setViewState({ type: 'dashboard' })}
+            onOpenTerms={() => setViewState({ type: 'terms' })}
           />
         )}
       </main>

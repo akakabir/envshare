@@ -65,4 +65,6 @@ export interface HistoryEntry {
 export type ViewState = 
   | { type: 'dashboard' }
   | { type: 'project'; projectId: string }
-  | { type: 'settings' };
+  | { type: 'settings' }
+  | { type: 'terms' }
+  | { type: 'privacy' };

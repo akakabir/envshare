@@ -1,112 +1,53 @@
-const ITERATIONS = 310000;
-const SALT_LENGTH = 16;
-const IV_LENGTH = 12;
+/**
+ * crypto.ts — Client-side wrappers for server-side encryption/decryption.
+ *
+ * ALL cryptographic operations are performed in Firebase Cloud Functions.
+ * The ENCRYPTION_SECRET never leaves Google's servers — it lives in
+ * Google Cloud Secret Manager and is only accessible to the functions.
+ *
+ * Architecture:
+ *   Browser → Firebase Callable Function → Secret Manager → AES-256-GCM
+ *                                        ↓
+ *                               Returns ciphertext/plaintext
+ *
+ * Per-project key derivation:
+ *   key = PBKDF2(ENCRYPTION_SECRET, projectId || salt, 310_000 iter, SHA-256, 256-bit)
+ *   So each project effectively has a unique key even with the same master secret.
+ */
 
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getApp } from 'firebase/app';
 
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
+function getFunctionsInstance() {
+  return getFunctions(getApp());
 }
 
 /**
- * Derives a PBKDF2 AES-GCM 256-bit CryptoKey from a given passphrase and salt.
- * Eliminates bundle-injected master secrets in favor of per-project zero-knowledge keys.
+ * Encrypts a sensitive string value via Cloud Function.
+ * @param plainText  The plaintext value to encrypt
+ * @param projectId  The Firestore project document ID (used as key context)
  */
-async function deriveKey(salt: Uint8Array, passphrase: string): Promise<CryptoKey> {
-  const enc = new TextEncoder();
-  const secretKeyMaterial = await crypto.subtle.importKey(
-    'raw',
-    enc.encode(passphrase) as unknown as BufferSource,
-    'PBKDF2',
-    false,
-    ['deriveKey']
+export async function encryptSensitiveValue(plainText: string, projectId: string): Promise<string> {
+  const functions = getFunctionsInstance();
+  const encryptFn = httpsCallable<{ projectId: string; plaintext: string }, { ciphertext: string }>(
+    functions,
+    'encryptValue'
   );
-
-  return await crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: salt as unknown as BufferSource,
-      iterations: ITERATIONS,
-      hash: 'SHA-256',
-    },
-    secretKeyMaterial,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt']
-  );
+  const result = await encryptFn({ projectId, plaintext: plainText });
+  return result.data.ciphertext;
 }
 
 /**
- * Encrypts a sensitive string value using AES-256-GCM with a random salt & IV.
- * @param plainText The plaintext value to encrypt
- * @param passphrase The project-specific encryption passphrase
+ * Decrypts an AES-256-GCM payload via Cloud Function.
+ * @param ciphertext  Base64-encoded salt+iv+authTag+ciphertext
+ * @param projectId   The Firestore project document ID (used as key context)
  */
-export async function encryptSensitiveValue(plainText: string, passphrase: string): Promise<string> {
-  const enc = new TextEncoder();
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
-  const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const key = await deriveKey(salt, passphrase);
-
-  const encryptedBuffer = await crypto.subtle.encrypt(
-    {
-      name: 'AES-GCM',
-      iv: iv as unknown as BufferSource,
-    },
-    key,
-    enc.encode(plainText) as unknown as BufferSource
+export async function decryptSensitiveValue(ciphertext: string, projectId: string): Promise<string> {
+  const functions = getFunctionsInstance();
+  const decryptFn = httpsCallable<{ projectId: string; ciphertext: string }, { plaintext: string }>(
+    functions,
+    'decryptValue'
   );
-
-  const ciphertext = new Uint8Array(encryptedBuffer);
-  const combined = new Uint8Array(SALT_LENGTH + IV_LENGTH + ciphertext.length);
-  combined.set(salt, 0);
-  combined.set(iv, SALT_LENGTH);
-  combined.set(ciphertext, SALT_LENGTH + IV_LENGTH);
-
-  return uint8ArrayToBase64(combined);
-}
-
-/**
- * Decrypts an AES-256-GCM payload using the given passphrase.
- * @param base64Payload Salt + IV + Ciphertext in Base64
- * @param passphrase The project-specific encryption passphrase
- */
-export async function decryptSensitiveValue(base64Payload: string, passphrase: string): Promise<string> {
-  try {
-    const combined = base64ToUint8Array(base64Payload);
-    if (combined.length < SALT_LENGTH + IV_LENGTH) {
-      throw new Error('Encrypted payload is too short');
-    }
-
-    const salt = combined.slice(0, SALT_LENGTH);
-    const iv = combined.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
-    const ciphertext = combined.slice(SALT_LENGTH + IV_LENGTH);
-
-    const key = await deriveKey(salt, passphrase);
-
-    const decryptedBuffer = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv as unknown as BufferSource,
-      },
-      key,
-      ciphertext as unknown as BufferSource
-    );
-
-    return new TextDecoder().decode(decryptedBuffer);
-  } catch (err) {
-    console.error('Decryption error:', err);
-    throw new Error('Decryption failed. Invalid payload or incorrect passphrase.');
-  }
+  const result = await decryptFn({ projectId, ciphertext });
+  return result.data.plaintext;
 }

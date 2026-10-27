@@ -112,12 +112,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [importParsing, setImportParsing] = useState(false);
   const [importApplying, setImportApplying] = useState(false);
 
-  // Per-project encryption passphrase (zero-knowledge client-side derivation)
-  const [projectPassphrase, setProjectPassphrase] = useState<string>(() => {
-    return sessionStorage.getItem(`envshare_passphrase_${projectId}`) || `envshare-proj-${projectId}`;
-  });
+  // Encryption is now fully server-side (Firebase Cloud Function).
+  // The ENCRYPTION_SECRET lives in Google Cloud Secret Manager — never in the browser.
+  // projectId is passed as the key context; the server derives a unique per-project key.
   const [isPassphraseModalOpen, setIsPassphraseModalOpen] = useState(false);
-  const [passphraseInput, setPassphraseInput] = useState(projectPassphrase);
 
   // History State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -426,7 +424,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         setVarValInput(revealedValues[v.id]);
       } else {
         try {
-          const decrypted = await decryptSensitiveValue(v.value, projectPassphrase);
+          const decrypted = await decryptSensitiveValue(v.value, projectId);
           setVarValInput(decrypted);
           setRevealedValues((prev) => ({ ...prev, [v.id]: decrypted }));
         } catch {
@@ -471,7 +469,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
     try {
       let finalValue = varValInput;
       if (varSensitiveInput) {
-        finalValue = await encryptSensitiveValue(varValInput, projectPassphrase);
+        finalValue = await encryptSensitiveValue(varValInput, projectId);
       }
 
       const now = new Date().toISOString();
@@ -567,10 +565,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       let oldDisplay = v.value;
 
       if (newIsSensitive) {
-        newValue = await encryptSensitiveValue(v.value, projectPassphrase);
+        newValue = await encryptSensitiveValue(v.value, projectId);
         setRevealedValues((prev) => ({ ...prev, [v.id]: v.value }));
       } else {
-        const plain = revealedValues[v.id] || (await decryptSensitiveValue(v.value, projectPassphrase));
+        const plain = revealedValues[v.id] || (await decryptSensitiveValue(v.value, projectId));
         newValue = plain;
         oldDisplay = plain;
         setRevealedValues((prev) => {
@@ -651,7 +649,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       });
     } else {
       try {
-        const decrypted = await decryptSensitiveValue(v.value, projectPassphrase);
+        const decrypted = await decryptSensitiveValue(v.value, projectId);
         setRevealedValues((prev) => ({ ...prev, [v.id]: decrypted }));
       } catch (err: any) {
         alert('Could not decrypt value: ' + err.message);
@@ -667,7 +665,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         if (revealedValues[v.id]) {
           textToCopy = revealedValues[v.id];
         } else {
-          textToCopy = await decryptSensitiveValue(v.value, projectPassphrase);
+          textToCopy = await decryptSensitiveValue(v.value, projectId);
         }
       }
       await navigator.clipboard.writeText(textToCopy);
@@ -789,7 +787,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
           let currentPlain = existing.value;
           if (existing.isSensitive) {
             try {
-              currentPlain = revealedValues[existing.id] || (await decryptSensitiveValue(existing.value, projectPassphrase));
+              currentPlain = revealedValues[existing.id] || (await decryptSensitiveValue(existing.value, projectId));
             } catch {
               currentPlain = '[Encrypted Value]';
             }
@@ -843,7 +841,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
           const isSens = !!item.makeSensitive;
           let finalVal = item.value;
           if (isSens) {
-            finalVal = await encryptSensitiveValue(item.value, projectPassphrase);
+            finalVal = await encryptSensitiveValue(item.value, projectId);
           }
 
           const varId = 'var_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
@@ -883,7 +881,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
           const isSens = item.existingVar.isSensitive;
           let finalVal = item.value;
           if (isSens) {
-            finalVal = await encryptSensitiveValue(item.value, projectPassphrase);
+            finalVal = await encryptSensitiveValue(item.value, projectId);
             setRevealedValues((prev) => ({ ...prev, [item.existingVar!.id]: item.value }));
           }
 
@@ -2170,66 +2168,41 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         </div>
       )}
 
-      {/* VAULT PASSPHRASE MODAL */}
+      {/* ENCRYPTION INFO MODAL */}
       {isPassphraseModalOpen && (
-        <div className="fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-md w-full p-6">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
+          onClick={() => setIsPassphraseModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl p-7 w-full max-w-md relative"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center mb-4">
               <Lock className="w-6 h-6" />
             </div>
-
-            <h3 className="text-lg font-bold text-stone-900 mb-1">Project Encryption Passphrase</h3>
+            <h3 className="text-lg font-bold text-stone-900 mb-1">Server-Side Encryption Active</h3>
             <p className="text-xs text-stone-500 leading-relaxed mb-4">
-              Sensitive variables are encrypted client-side using AES-256-GCM. Deriving keys from a per-project passphrase guarantees zero-knowledge security so no master secrets are bundled with the app.
+              Sensitive variables are encrypted and decrypted via a secure Firebase Cloud Function.
+              The master secret lives in Google Cloud Secret Manager and never reaches your browser.
+              Each project uses a unique derived key — so even with the same master secret, projects are cryptographically isolated.
             </p>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const trimmed = passphraseInput.trim();
-                const chosen = trimmed || `envshare-proj-${projectId}`;
-                setProjectPassphrase(chosen);
-                sessionStorage.setItem(`envshare_passphrase_${projectId}`, chosen);
-                setRevealedValues({});
-                setIsPassphraseModalOpen(false);
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">
-                  Passphrase / Secret Key
-                </label>
-                <input
-                  type="text"
-                  value={passphraseInput}
-                  onChange={(e) => setPassphraseInput(e.target.value)}
-                  placeholder={`envshare-proj-${projectId}`}
-                  className="w-full px-3.5 py-2 rounded-xl border border-stone-300 bg-white text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 text-xs font-mono shadow-xs transition"
-                />
-                <span className="text-[11px] text-stone-400 mt-1 block">
-                  All team members must share this passphrase to view and decrypt sensitive variables.
-                </span>
-              </div>
-
-              <div className="pt-3 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsPassphraseModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium rounded-full text-stone-700 bg-white hover:bg-stone-50 border border-stone-300 transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 text-xs font-semibold rounded-full text-white bg-emerald-700 hover:bg-emerald-800 transition cursor-pointer"
-                >
-                  Save Passphrase
-                </button>
-              </div>
-            </form>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-xs text-emerald-800 font-mono mb-4">
+              AES-256-GCM · PBKDF2 (SHA-256, 310k iter) · Server-side key
+            </div>
+            <div className="pt-2 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setIsPassphraseModalOpen(false)}
+                className="px-5 py-2 text-xs font-semibold rounded-full text-white bg-emerald-700 hover:bg-emerald-800 transition cursor-pointer"
+              >
+                Got it
+              </button>
+            </div>
           </div>
         </div>
       )}
+
     </div>
   );
 };

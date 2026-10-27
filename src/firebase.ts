@@ -37,10 +37,21 @@ import { UserProfile, UserLookup } from './types.ts';
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+// OAuth Client ID is public and safe to ship to the frontend.
+// It is stored in firebase-applet-config.json (oAuthClientId) and never in VITE_ env vars
+// because anything prefixed VITE_ is embedded in the compiled JS bundle.
+export const GOOGLE_CLIENT_ID: string = firebaseConfig.oAuthClientId || '';
+
+// The redirect URI is always the Firebase Auth handler for this project.
+export const GOOGLE_REDIRECT_URI: string = `https://${firebaseConfig.authDomain}/__/auth/handler`;
+
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('email');
 googleProvider.addScope('profile');
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+  ...(GOOGLE_CLIENT_ID ? { client_id: GOOGLE_CLIENT_ID } : {}),
+});
 
 export enum OperationType {
   CREATE = 'create',
