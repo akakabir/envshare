@@ -23,6 +23,7 @@ import {
   TreePine,
   Trees,
 } from 'lucide-react';
+import forestRiverBg from '../assets/images/forest_river_bg_1793112345410.jpg';
 
 interface LandingPageProps {
   onOpenAuth: (mode: 'signin' | 'signup') => void;
@@ -166,11 +167,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onOpenAuth }) => {
   return (
     <div className="relative min-h-screen bg-[#f2f7f4] text-stone-900 font-sans selection:bg-emerald-100 selection:text-emerald-900 overflow-x-hidden">
       {/* Homescreen Background: Lush Forest River with Atmospheric Mist & Greenery */}
-      <div className="absolute top-0 left-0 right-0 h-[1000px] sm:h-[1100px] z-0 overflow-hidden pointer-events-none">
+      <div className="absolute top-0 left-0 right-0 h-[1000px] sm:h-[1100px] z-0 overflow-hidden pointer-events-none bg-gradient-to-b from-[#1b261f] via-[#223127] to-[#f2f7f4]">
         <img
-          src="/src/assets/images/forest_river_bg_1793112345410.jpg"
-          alt="Lush forest river ecosystem"
-          referrerPolicy="no-referrer"
+          src={forestRiverBg}
+          alt=""
+          role="presentation"
+          aria-hidden="true"
+          onError={(e) => {
+            // Graceful fallback to prevent broken alt text showing if image asset fails
+            e.currentTarget.style.display = 'none';
+          }}
           className="w-full h-full object-cover object-center filter brightness-[0.88] saturate-[1.15]"
         />
         {/* Atmospheric Forest Gradient Overlay for contrast and natural smooth transition into light greenish white #f2f7f4 */}

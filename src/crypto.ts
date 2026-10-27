@@ -4,7 +4,9 @@ const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
 
 function getSecret(): string {
-  const envVal = import.meta.env?.VITE_ENCRYPTION_SECRET;
+  const envVal =
+    (import.meta as unknown as { env?: Record<string, string> }).env?.ENCRYPTION_SECRET ||
+    (typeof process !== 'undefined' ? process.env?.ENCRYPTION_SECRET : undefined);
   return envVal && envVal.trim().length > 0 ? envVal : DEFAULT_SECRET;
 }
 
