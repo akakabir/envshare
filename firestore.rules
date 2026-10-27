@@ -131,6 +131,20 @@ service cloud.firestore {
             && isValidId(variableId)
             && (request.auth.uid in existing().memberUids);
         }
+
+        // Nested Subcollection: History (Immutable audit log)
+        match /history/{historyId} {
+          allow list, get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
+          allow create: if isSignedIn()
+            && isValidId(historyId)
+            && incoming().id == historyId
+            && incoming().projectId == projectId
+            && incoming().environmentId == environmentId
+            && incoming().memberUids is list
+            && (request.auth.uid in incoming().memberUids)
+            && (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids);
+          allow update, delete: if false; // strictly immutable: can never be modified or deleted!
+        }
       }
     }
   }

@@ -71,6 +71,27 @@
         "updatedBy": { "type": "string", "maxLength": 200 }
       },
       "required": ["id", "key", "value", "isSensitive", "environmentId", "projectId", "memberUids", "createdAt"]
+    },
+    "HistoryEntry": {
+      "title": "HistoryEntry",
+      "description": "Immutable change history log for variable additions, edits, deletes, and imports",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "environmentId": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "key": { "type": "string" },
+        "action": { "type": "string", "enum": ["create", "update", "delete", "toggle_sensitivity", "import"] },
+        "actionLabel": { "type": "string" },
+        "oldValue": { "type": "string" },
+        "newValue": { "type": "string" },
+        "isSensitive": { "type": "boolean" },
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "projectId", "environmentId", "memberUids", "key", "action", "userId", "userEmail", "timestamp"]
     }
   },
   "firestore": {
@@ -93,6 +114,10 @@
     "/projects/{projectId}/environments/{environmentId}/variables/{variableId}": {
       "schema": "EnvVariable",
       "description": "Environment variables with sensitive encryption support"
+    },
+    "/projects/{projectId}/environments/{environmentId}/history/{historyId}": {
+      "schema": "HistoryEntry",
+      "description": "Immutable change history log for an environment"
     }
   }
 }

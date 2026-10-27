@@ -65,7 +65,7 @@ export default function App() {
 
   // Authenticated workspace flow
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col text-slate-900 font-sans antialiased selection:bg-indigo-100 selection:text-indigo-900">
+    <div className="min-h-screen bg-[#faf9f6] flex flex-col text-stone-900 font-sans antialiased selection:bg-emerald-100 selection:text-emerald-900">
       <Navbar
         user={user}
         viewState={viewState}

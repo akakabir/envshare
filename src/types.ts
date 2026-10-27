@@ -46,6 +46,22 @@ export interface EnvVariable {
   updatedBy: string;
 }
 
+export interface HistoryEntry {
+  id: string;
+  projectId: string;
+  environmentId: string;
+  memberUids: string[];
+  key: string;
+  action: 'create' | 'update' | 'delete' | 'toggle_sensitivity' | 'import';
+  actionLabel: string;
+  oldValue?: string;
+  newValue?: string;
+  isSensitive: boolean;
+  userId: string;
+  userEmail: string;
+  timestamp: string;
+}
+
 export type ViewState = 
   | { type: 'dashboard' }
   | { type: 'project'; projectId: string }
