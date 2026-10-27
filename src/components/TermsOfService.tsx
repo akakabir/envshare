@@ -95,14 +95,14 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
               Description of the Service
             </h2>
             <p>
-              EnvShare provides an organic, client-side protected &quot;Eco-Vault&quot; environment for software development teams to store, synchronize, audit, and share environment configuration variables across environments (e.g., Development, Staging, Production).
+              EnvShare provides an secure &quot;Eco-Vault&quot; environment for software development teams to store, synchronize, audit, and share environment configuration variables across environments (e.g., Development, Staging, Production).
             </p>
           </section>
 
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-stone-900 flex items-center gap-2">
               <span className="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">3</span>
-              Zero-Knowledge Client-Side Encryption & Passphrase Responsibilities
+              Encryption & Security Responsibilities
             </h2>
             <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 text-amber-950 text-xs space-y-2">
               <div className="flex items-center gap-1.5 font-bold text-amber-900">
@@ -110,11 +110,11 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
                 <span>Important Security Disclosure</span>
               </div>
               <p>
-                Sensitive variables marked in EnvShare are encrypted in your browser using AES-256-GCM with PBKDF2 key derivation before being transmitted to our servers or Cloud Firestore database.
+                Sensitive variables marked in EnvShare are encrypted server-side using AES-256-GCM with PBKDF2 key derivation before being stored in our Cloud Firestore database.
               </p>
               <ul className="list-disc pl-4 space-y-1">
-                <li>You are solely responsible for securely storing and distributing your project encryption passphrases to authorized team members.</li>
-                <li>Because EnvShare employs zero-knowledge client-side encryption, we do not hold your secret keys. If you lose your project passphrase, encrypted values cannot be recovered by EnvShare support or staff.</li>
+                <li>You are responsible for keeping your account credentials secure and for only inviting collaborators you trust, since project members can view decrypted values.</li>
+                <li>The master encryption secret is held in Google Cloud Secret Manager and is accessible only to EnvShare&apos;s server-side functions. This is not end-to-end encryption.</li>
               </ul>
             </div>
           </section>
@@ -169,7 +169,7 @@ export const TermsOfService: React.FC<TermsOfServiceProps> = ({
               Disclaimer of Warranties & Limitation of Liability
             </h2>
             <p className="text-xs text-stone-600">
-              THE SERVICE IS PROVIDED &quot;AS IS&quot; AND &quot;AS AVAILABLE&quot; WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED. UNDER NO CIRCUMSTANCES SHALL ENVSHARE OR ITS MAINTAINERS BE LIABLE FOR ANY INDIRECT, INCIDENTAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING FROM THE USE OF OR INABILITY TO USE THE SERVICE, LOSS OF SECRETS OR PASSPHRASES, OR UNINTENDED SYSTEM DISRUPTIONS.
+              THE SERVICE IS PROVIDED &quot;AS IS&quot; AND &quot;AS AVAILABLE&quot; WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED. UNDER NO CIRCUMSTANCES SHALL ENVSHARE OR ITS MAINTAINERS BE LIABLE FOR ANY INDIRECT, INCIDENTAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING FROM THE USE OF OR INABILITY TO USE THE SERVICE, LOSS OF SECRETS, OR UNINTENDED SYSTEM DISRUPTIONS.
             </p>
           </section>
 

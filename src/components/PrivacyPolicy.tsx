@@ -85,7 +85,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
               Our Privacy Commitment
             </h2>
             <p>
-              At <strong>EnvShare</strong>, protecting your sensitive environment variables and privacy is fundamental to our architecture. This Privacy Policy details what information we collect, how zero-knowledge encryption ensures your secrets remain confidential, and the choices available to you regarding your data.
+              At <strong>EnvShare</strong>, protecting your sensitive environment variables and privacy is fundamental to our architecture. This Privacy Policy details what information we collect, how server-side encryption protects your secrets, and the choices available to you regarding your data.
             </p>
           </section>
 
@@ -121,20 +121,20 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-stone-900 flex items-center gap-2">
               <span className="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">3</span>
-              Zero-Knowledge Client-Side Encryption
+              Server-Side Encryption of Sensitive Values
             </h2>
             <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200/80 text-emerald-950 text-xs space-y-2">
               <div className="flex items-center gap-1.5 font-bold text-emerald-900">
                 <EyeOff className="w-4 h-4 text-emerald-800" />
-                <span>Zero-Knowledge Principle</span>
+                <span>How Your Secrets Are Protected</span>
               </div>
               <p>
-                Any environment variable designated as <strong>Sensitive</strong> is encrypted directly in your browser using standard <strong>AES-256-GCM</strong> cryptography derived with PBKDF2 (SHA-256, 310,000 iterations).
+                Any environment variable designated as <strong>Sensitive</strong> is encrypted by a Firebase Cloud Function using <strong>AES-256-GCM</strong>, with a per-project key derived via PBKDF2 (SHA-256, 310,000 iterations).
               </p>
               <ul className="list-disc pl-4 space-y-1 text-emerald-900/90">
-                <li>Plaintext values are never transmitted over the wire unencrypted.</li>
+                <li>Values travel over HTTPS to the encryption function, which verifies you are signed in and a member of the project.</li>
                 <li>Firebase Cloud Firestore stores only Base64-encoded Salt + IV + Ciphertext.</li>
-                <li>EnvShare maintains no centralized master decryption key in production.</li>
+                <li>The master secret is held in Google Cloud Secret Manager and is accessible only to our Cloud Functions, never to your browser. Because the service holds this key, this is not end-to-end (zero-knowledge) encryption.</li>
               </ul>
             </div>
           </section>
@@ -163,6 +163,7 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
             </p>
             <ul className="list-disc pl-5 space-y-1 text-xs text-stone-600">
               <li><strong>Firebase Authentication & Google OAuth:</strong> For secure sign-in tokens and user identity verification.</li>
+              <li><strong>Cloud Functions & Secret Manager:</strong> For server-side encryption and decryption of sensitive values.</li>
               <li><strong>Cloud Firestore:</strong> For encrypted database storage, real-time sync, and security rule enforcement.</li>
             </ul>
           </section>
@@ -170,10 +171,10 @@ export const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({
           <section className="space-y-3">
             <h2 className="text-lg font-bold text-stone-900 flex items-center gap-2">
               <span className="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">6</span>
-              Local Browser Storage (SessionStorage)
+              Browser Storage
             </h2>
             <p className="text-xs text-stone-600">
-              EnvShare uses your browser&apos;s transient <code className="bg-stone-100 px-1 py-0.5 rounded text-stone-800">sessionStorage</code> to temporarily hold your active project encryption passphrase during your active browser tab session, ensuring you do not need to re-enter it on every variable reveal. This data is never sent to any external analytics or tracking service.
+              EnvShare does not store encryption keys or passphrases in your browser. Firebase Authentication keeps a session token in your browser so you stay signed in. We do not use advertising or analytics trackers.
             </p>
           </section>
 

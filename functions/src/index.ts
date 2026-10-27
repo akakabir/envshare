@@ -2,7 +2,7 @@ import * as crypto from 'crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { defineSecret } from 'firebase-functions/v2/params';
+import { defineSecret } from 'firebase-functions/params';
 
 initializeApp();
 const db = getFirestore();
@@ -11,6 +11,34 @@ const db = getFirestore();
 // Set it once with: firebase functions:secrets:set ENCRYPTION_SECRET
 // It is NEVER exposed to the browser or baked into any JS bundle.
 const ENCRYPTION_SECRET = defineSecret('ENCRYPTION_SECRET');
+
+// In local dev without Secret Manager, reuse a single generated key per instance
+let devFallbackKey: string | null = null;
+
+/**
+ * Retrieves the master encryption secret. In production it comes from Secret Manager.
+ * If missing (e.g., during local development), generates a temporary random key.
+ * Cached in-process so encrypt and decrypt use the exact same key.
+ */
+function getMasterSecret(): string {
+  try {
+    const secret = ENCRYPTION_SECRET.value();
+    if (secret && secret.length >= 32) {
+      return secret;
+    }
+  } catch {
+    // ENCRYPTION_SECRET might throw when accessed outside Cloud Functions runtime
+  }
+
+  if (!devFallbackKey) {
+    console.warn('ENCRYPTION_SECRET is not set or too short; using a temporary in-memory key for development only.');
+    devFallbackKey = crypto.randomBytes(32).toString('base64');
+  }
+  return devFallbackKey;
+}
+
+export { privacy, tos } from './privacy';
+
 
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
@@ -68,7 +96,7 @@ export const encryptValue = onCall(
     }
 
     // 3. Encrypt
-    const masterSecret = ENCRYPTION_SECRET.value();
+    const masterSecret = getMasterSecret();
     const salt = crypto.randomBytes(SALT_LENGTH);
     const iv = crypto.randomBytes(IV_LENGTH);
     const key = deriveKey(masterSecret, projectId, salt);
@@ -120,7 +148,7 @@ export const decryptValue = onCall(
     }
 
     // 3. Decrypt
-    const masterSecret = ENCRYPTION_SECRET.value();
+    const masterSecret = getMasterSecret();
     const combined = Buffer.from(ciphertext, 'base64');
 
     const MIN_LENGTH = SALT_LENGTH + IV_LENGTH + 16; // +16 for GCM auth tag

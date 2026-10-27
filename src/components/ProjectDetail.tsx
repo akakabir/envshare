@@ -1111,11 +1111,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             <button
               type="button"
               onClick={() => {
-                setPassphraseInput(projectPassphrase);
                 setIsPassphraseModalOpen(true);
               }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 transition cursor-pointer"
-              title="Configure project encryption passphrase"
+              title="View encryption details"
             >
               <Lock className="w-3.5 h-3.5 text-emerald-700" />
               <span>Vault Key</span>
@@ -1637,13 +1636,13 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mt-1.5 shrink-0" />
                   <span>
-                    <strong>PBKDF2 Key Derivation:</strong> Derived with SHA-256 and 310,000 iterations per standard.
+                    <strong>PBKDF2 Key Derivation:</strong> A unique key per project is derived server-side with SHA-256 and 310,000 iterations.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 mt-1.5 shrink-0" />
                   <span>
-                    <strong>AES-256-GCM:</strong> Sensitive values are encrypted in the client browser with random 16B salt and 12B IV.
+                    <strong>AES-256-GCM:</strong> Sensitive values are encrypted by a secure server-side function with a random 16B salt and 12B IV before being stored.
                   </span>
                 </li>
                 <li className="flex items-start gap-2">

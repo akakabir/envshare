@@ -645,7 +645,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 AES-256-GCM Encryption
               </h3>
               <p className="text-xs text-stone-600 leading-relaxed">
-                Sensitive variables are encrypted in the client browser with PBKDF2 (SHA-256, 310,000 iterations) using random 16B salt and 12B IV. Plain text never leaves memory.
+                Sensitive variables are encrypted server-side (AES-256-GCM, PBKDF2 SHA-256 with 310,000 iterations) using a random 16B salt and 12B IV. The master secret lives in Google Cloud Secret Manager and never reaches your browser.
               </p>
             </div>
 
@@ -762,7 +762,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span>— Organic Environment Variables Portal</span>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-3 text-stone-500">
-            <span>Client-side AES-256-GCM</span>
+            <span>AES-256-GCM encryption</span>
             <span>•</span>
             {onOpenTerms && (
               <button
