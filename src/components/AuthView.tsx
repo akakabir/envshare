@@ -3,6 +3,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   updateProfile,
   auth,
   googleProvider,
@@ -96,7 +97,16 @@ export const AuthView: React.FC<AuthViewProps> = ({
       await syncUserProfile(userCred.user);
       onSuccess?.();
     } catch (err: any) {
-      setError(getFriendlyAuthErrorMessage(err));
+      if (err.code === 'auth/popup-blocked') {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch (redirectErr: any) {
+          setError(getFriendlyAuthErrorMessage(redirectErr));
+        }
+      } else {
+        setError(getFriendlyAuthErrorMessage(err));
+      }
     } finally {
       setGoogleLoading(false);
     }

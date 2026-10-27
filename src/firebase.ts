@@ -10,6 +10,9 @@ import {
   deleteUser,
   User as FirebaseUser,
   reauthenticateWithCredential,
+  reauthenticateWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   EmailAuthProvider,
 } from 'firebase/auth';
 import {
@@ -35,6 +38,9 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('email');
+googleProvider.addScope('profile');
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export enum OperationType {
   CREATE = 'create',
@@ -159,6 +165,14 @@ export function getFriendlyAuthErrorMessage(error: any): string {
       return 'Access temporarily blocked due to many failed attempts. Try again later.';
     case 'auth/network-request-failed':
       return 'Network connection failed. Please check your internet connection.';
+    case 'auth/unauthorized-domain':
+      return 'This domain is not authorized for OAuth sign-in. Please add it to Authorized Domains in the Firebase Console.';
+    case 'auth/operation-not-allowed':
+      return 'Google sign-in is not enabled in your Firebase project. Please enable it in Firebase Authentication.';
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with the same email address but different sign-in credentials. Please sign in using your existing provider.';
+    case 'auth/cancelled-popup-request':
+      return 'Only one sign-in popup can be active at a time. The previous popup request was cancelled.';
     default:
       if (message.includes('auth/')) {
         return message.replace(/^Firebase:\s*/, '');
@@ -169,6 +183,9 @@ export function getFriendlyAuthErrorMessage(error: any): string {
 
 export {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  reauthenticateWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,

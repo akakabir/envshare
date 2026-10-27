@@ -1,14 +1,6 @@
-const DEFAULT_SECRET = 'envshare-master-crypto-secret-key-32b!';
 const ITERATIONS = 310000;
 const SALT_LENGTH = 16;
 const IV_LENGTH = 12;
-
-function getSecret(): string {
-  const envVal =
-    (import.meta as unknown as { env?: Record<string, string> }).env?.ENCRYPTION_SECRET ||
-    (typeof process !== 'undefined' ? process.env?.ENCRYPTION_SECRET : undefined);
-  return envVal && envVal.trim().length > 0 ? envVal : DEFAULT_SECRET;
-}
 
 function uint8ArrayToBase64(bytes: Uint8Array): string {
   let binary = '';
@@ -28,11 +20,15 @@ function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
-async function deriveKey(salt: Uint8Array): Promise<CryptoKey> {
+/**
+ * Derives a PBKDF2 AES-GCM 256-bit CryptoKey from a given passphrase and salt.
+ * Eliminates bundle-injected master secrets in favor of per-project zero-knowledge keys.
+ */
+async function deriveKey(salt: Uint8Array, passphrase: string): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const secretKeyMaterial = await crypto.subtle.importKey(
     'raw',
-    enc.encode(getSecret()) as unknown as BufferSource,
+    enc.encode(passphrase) as unknown as BufferSource,
     'PBKDF2',
     false,
     ['deriveKey']
@@ -52,11 +48,16 @@ async function deriveKey(salt: Uint8Array): Promise<CryptoKey> {
   );
 }
 
-export async function encryptSensitiveValue(plainText: string): Promise<string> {
+/**
+ * Encrypts a sensitive string value using AES-256-GCM with a random salt & IV.
+ * @param plainText The plaintext value to encrypt
+ * @param passphrase The project-specific encryption passphrase
+ */
+export async function encryptSensitiveValue(plainText: string, passphrase: string): Promise<string> {
   const enc = new TextEncoder();
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
   const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
-  const key = await deriveKey(salt);
+  const key = await deriveKey(salt, passphrase);
 
   const encryptedBuffer = await crypto.subtle.encrypt(
     {
@@ -76,7 +77,12 @@ export async function encryptSensitiveValue(plainText: string): Promise<string> 
   return uint8ArrayToBase64(combined);
 }
 
-export async function decryptSensitiveValue(base64Payload: string): Promise<string> {
+/**
+ * Decrypts an AES-256-GCM payload using the given passphrase.
+ * @param base64Payload Salt + IV + Ciphertext in Base64
+ * @param passphrase The project-specific encryption passphrase
+ */
+export async function decryptSensitiveValue(base64Payload: string, passphrase: string): Promise<string> {
   try {
     const combined = base64ToUint8Array(base64Payload);
     if (combined.length < SALT_LENGTH + IV_LENGTH) {
@@ -87,7 +93,7 @@ export async function decryptSensitiveValue(base64Payload: string): Promise<stri
     const iv = combined.slice(SALT_LENGTH, SALT_LENGTH + IV_LENGTH);
     const ciphertext = combined.slice(SALT_LENGTH + IV_LENGTH);
 
-    const key = await deriveKey(salt);
+    const key = await deriveKey(salt, passphrase);
 
     const decryptedBuffer = await crypto.subtle.decrypt(
       {
@@ -101,6 +107,6 @@ export async function decryptSensitiveValue(base64Payload: string): Promise<stri
     return new TextDecoder().decode(decryptedBuffer);
   } catch (err) {
     console.error('Decryption error:', err);
-    throw new Error('Decryption failed. Invalid payload or key.');
+    throw new Error('Decryption failed. Invalid payload or incorrect passphrase.');
   }
 }

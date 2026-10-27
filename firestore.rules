@@ -10,6 +10,10 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isProjectMember(projectId) {
+      return isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids);
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -47,7 +51,9 @@ service cloud.firestore {
       allow create, update: if isSignedIn()
         && incoming().uid == request.auth.uid
         && incoming().email is string
-        && incoming().email.size() <= 200;
+        && incoming().email.size() <= 200
+        && incoming().email == request.auth.token.email.lower()
+        && lookupKey == incoming().email.replace('[^a-zA-Z0-9]', '_');
       allow delete: if isSignedIn() && existing().uid == request.auth.uid;
     }
 
@@ -67,45 +73,62 @@ service cloud.firestore {
         && incoming().memberEmails is list && incoming().memberEmails.size() <= 50;
       allow update: if isSignedIn()
         && isValidId(projectId)
-        && (existing().ownerId == request.auth.uid || request.auth.uid in existing().memberUids)
         && incoming().id == existing().id
         && incoming().ownerId == existing().ownerId
-        && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
-        && (!('description' in incoming()) || (incoming().description is string && incoming().description.size() <= 500))
-        && incoming().memberUids is list && incoming().memberUids.size() <= 50
-        && (existing().ownerId in incoming().memberUids)
-        && incoming().memberEmails is list && incoming().memberEmails.size() <= 50;
+        && (
+          // Case 1: Only the owner may change memberUids / memberEmails
+          (existing().ownerId == request.auth.uid
+            && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
+            && (!('description' in incoming()) || (incoming().description is string && incoming().description.size() <= 500))
+            && incoming().memberUids is list && incoming().memberUids.size() <= 50
+            && (existing().ownerId in incoming().memberUids)
+            && incoming().memberEmails is list && incoming().memberEmails.size() <= 50
+          ) ||
+          // Case 2: Collaborators may edit name/description only
+          (existing().ownerId != request.auth.uid
+            && (request.auth.uid in existing().memberUids)
+            && incoming().memberUids == existing().memberUids
+            && incoming().memberEmails == existing().memberEmails
+            && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
+            && (!('description' in incoming()) || (incoming().description is string && incoming().description.size() <= 500))
+          ) ||
+          // Case 3: Collaborators may remove only themselves (leave project)
+          (existing().ownerId != request.auth.uid
+            && (request.auth.uid in existing().memberUids)
+            && !(request.auth.uid in incoming().memberUids)
+            && incoming().memberUids.size() == existing().memberUids.size() - 1
+            && existing().memberUids.hasAll(incoming().memberUids)
+            && (existing().ownerId in incoming().memberUids)
+            && existing().memberEmails.hasAll(incoming().memberEmails)
+            && incoming().memberEmails.size() >= existing().memberEmails.size() - 1
+            && incoming().name == existing().name
+            && incoming().get('description', '') == existing().get('description', '')
+          )
+        );
       allow delete: if isSignedIn()
         && isValidId(projectId)
         && existing().ownerId == request.auth.uid;
 
       // Subcollection: Environments
       match /environments/{environmentId} {
-        allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
-        allow get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
-        allow create: if isSignedIn()
+        allow list, get: if isProjectMember(projectId);
+        allow create: if isProjectMember(projectId)
           && isValidId(environmentId)
           && incoming().id == environmentId
           && incoming().projectId == projectId
-          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100
-          && incoming().memberUids is list
-          && (request.auth.uid in incoming().memberUids)
-          && (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids);
-        allow update: if isSignedIn()
+          && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100;
+        allow update: if isProjectMember(projectId)
           && isValidId(environmentId)
-          && (request.auth.uid in existing().memberUids)
           && incoming().id == existing().id
           && incoming().projectId == existing().projectId
           && incoming().name is string && incoming().name.size() > 0 && incoming().name.size() <= 100;
-        allow delete: if isSignedIn()
-          && isValidId(environmentId)
-          && (request.auth.uid in existing().memberUids);
+        allow delete: if isProjectMember(projectId)
+          && isValidId(environmentId);
 
         // Nested Subcollection: Variables
         match /variables/{variableId} {
-          allow list: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
-          allow get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
-          allow create: if isSignedIn()
+          allow list, get: if isProjectMember(projectId);
+          allow create: if isProjectMember(projectId)
             && isValidId(variableId)
             && incoming().id == variableId
             && incoming().projectId == projectId
@@ -113,13 +136,9 @@ service cloud.firestore {
             && incoming().key is string && incoming().key.size() > 0 && incoming().key.size() <= 150
             && incoming().key.matches('^[a-zA-Z0-9_]+$')
             && incoming().value is string && incoming().value.size() <= 10000
-            && incoming().isSensitive is bool
-            && incoming().memberUids is list
-            && (request.auth.uid in incoming().memberUids)
-            && (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids);
-          allow update: if isSignedIn()
+            && incoming().isSensitive is bool;
+          allow update: if isProjectMember(projectId)
             && isValidId(variableId)
-            && (request.auth.uid in existing().memberUids)
             && incoming().id == existing().id
             && incoming().projectId == existing().projectId
             && incoming().environmentId == existing().environmentId
@@ -127,22 +146,18 @@ service cloud.firestore {
             && incoming().key.matches('^[a-zA-Z0-9_]+$')
             && incoming().value is string && incoming().value.size() <= 10000
             && incoming().isSensitive is bool;
-          allow delete: if isSignedIn()
-            && isValidId(variableId)
-            && (request.auth.uid in existing().memberUids);
+          allow delete: if isProjectMember(projectId)
+            && isValidId(variableId);
         }
 
         // Nested Subcollection: History (Immutable audit log)
         match /history/{historyId} {
-          allow list, get: if isSignedIn() && (request.auth.uid in resource.data.memberUids);
-          allow create: if isSignedIn()
+          allow list, get: if isProjectMember(projectId);
+          allow create: if isProjectMember(projectId)
             && isValidId(historyId)
             && incoming().id == historyId
             && incoming().projectId == projectId
-            && incoming().environmentId == environmentId
-            && incoming().memberUids is list
-            && (request.auth.uid in incoming().memberUids)
-            && (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids);
+            && incoming().environmentId == environmentId;
           allow update, delete: if false; // strictly immutable: can never be modified or deleted!
         }
       }

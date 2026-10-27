@@ -55,12 +55,15 @@ interface ProjectDetailProps {
   onBack: () => void;
 }
 
+export const SENSITIVE_KEY_PATTERN = /(SECRET|PASSWORD|PASSWD|TOKEN|API_KEY|PRIVATE|CREDENTIAL|AUTH|DATABASE_URL|CONNECTION_STRING|SALT|SIGNING|ACCESS_KEY)/i;
+
 interface ParsedImportItem {
   key: string;
   value: string;
   status: 'new' | 'update' | 'unchanged';
   oldValue?: string;
   existingVar?: EnvVariable;
+  makeSensitive?: boolean;
 }
 
 export const ProjectDetail: React.FC<ProjectDetailProps> = ({
@@ -108,6 +111,13 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [importError, setImportError] = useState<string | null>(null);
   const [importParsing, setImportParsing] = useState(false);
   const [importApplying, setImportApplying] = useState(false);
+
+  // Per-project encryption passphrase (zero-knowledge client-side derivation)
+  const [projectPassphrase, setProjectPassphrase] = useState<string>(() => {
+    return sessionStorage.getItem(`envshare_passphrase_${projectId}`) || `envshare-proj-${projectId}`;
+  });
+  const [isPassphraseModalOpen, setIsPassphraseModalOpen] = useState(false);
+  const [passphraseInput, setPassphraseInput] = useState(projectPassphrase);
 
   // History State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -416,7 +426,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         setVarValInput(revealedValues[v.id]);
       } else {
         try {
-          const decrypted = await decryptSensitiveValue(v.value);
+          const decrypted = await decryptSensitiveValue(v.value, projectPassphrase);
           setVarValInput(decrypted);
           setRevealedValues((prev) => ({ ...prev, [v.id]: decrypted }));
         } catch {
@@ -461,7 +471,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
     try {
       let finalValue = varValInput;
       if (varSensitiveInput) {
-        finalValue = await encryptSensitiveValue(varValInput);
+        finalValue = await encryptSensitiveValue(varValInput, projectPassphrase);
       }
 
       const now = new Date().toISOString();
@@ -557,10 +567,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       let oldDisplay = v.value;
 
       if (newIsSensitive) {
-        newValue = await encryptSensitiveValue(v.value);
+        newValue = await encryptSensitiveValue(v.value, projectPassphrase);
         setRevealedValues((prev) => ({ ...prev, [v.id]: v.value }));
       } else {
-        const plain = revealedValues[v.id] || (await decryptSensitiveValue(v.value));
+        const plain = revealedValues[v.id] || (await decryptSensitiveValue(v.value, projectPassphrase));
         newValue = plain;
         oldDisplay = plain;
         setRevealedValues((prev) => {
@@ -641,7 +651,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       });
     } else {
       try {
-        const decrypted = await decryptSensitiveValue(v.value);
+        const decrypted = await decryptSensitiveValue(v.value, projectPassphrase);
         setRevealedValues((prev) => ({ ...prev, [v.id]: decrypted }));
       } catch (err: any) {
         alert('Could not decrypt value: ' + err.message);
@@ -657,7 +667,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         if (revealedValues[v.id]) {
           textToCopy = revealedValues[v.id];
         } else {
-          textToCopy = await decryptSensitiveValue(v.value);
+          textToCopy = await decryptSensitiveValue(v.value, projectPassphrase);
         }
       }
       await navigator.clipboard.writeText(textToCopy);
@@ -681,12 +691,17 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
 
     setImportParsing(true);
     const lines = text.split('\n');
-    const parsed: { key: string; value: string }[] = [];
+    const parsedMap = new Map<string, { key: string; value: string }>();
 
     // Parse lines
     for (let i = 0; i < lines.length; i++) {
       const lineNum = i + 1;
-      const line = lines[i].trim();
+      let line = lines[i].trim();
+
+      // Strip leading 'export '
+      if (/^export\s+/.test(line)) {
+        line = line.replace(/^export\s+/, '').trim();
+      }
 
       // Ignore empty lines and lines starting with #
       if (!line || line.startsWith('#')) {
@@ -717,16 +732,33 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       }
 
       let rawValue = line.slice(eqIndex + 1).trim();
-      // Strip surrounding quotes
-      if (
-        (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
-        (rawValue.startsWith("'") && rawValue.endsWith("'"))
-      ) {
-        rawValue = rawValue.slice(1, -1);
+
+      // Handle quoted vs unquoted values
+      if (rawValue.startsWith('"') || rawValue.startsWith("'")) {
+        const quote = rawValue[0];
+        let closingIndex = -1;
+        for (let j = 1; j < rawValue.length; j++) {
+          if (rawValue[j] === quote && rawValue[j - 1] !== '\\') {
+            closingIndex = j;
+            break;
+          }
+        }
+        if (closingIndex !== -1) {
+          // Inside quotes is the value. Comments outside quotes are ignored.
+          rawValue = rawValue.slice(1, closingIndex);
+        } else if (rawValue.endsWith(quote) && rawValue.length >= 2) {
+          rawValue = rawValue.slice(1, -1);
+        }
+      } else {
+        // Unquoted value: Strip inline comments (` # note`)
+        rawValue = rawValue.replace(/\s+#.*$/, '').trim();
       }
 
-      parsed.push({ key: rawKey, value: rawValue });
+      // If the same key appears twice in the pasted block, the last one wins
+      parsedMap.set(rawKey.toUpperCase(), { key: rawKey, value: rawValue });
     }
+
+    const parsed = Array.from(parsedMap.values());
 
     if (parsed.length === 0) {
       setImportError('No valid variable definitions found. Make sure lines follow KEY=VALUE format.');
@@ -745,17 +777,19 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
 
         if (!existing) {
           // 🟢 New
+          const isSens = SENSITIVE_KEY_PATTERN.test(item.key);
           items.push({
             key: item.key,
             value: item.value,
             status: 'new',
+            makeSensitive: isSens,
           });
         } else {
           // Existing: compare value (decrypt if sensitive)
           let currentPlain = existing.value;
           if (existing.isSensitive) {
             try {
-              currentPlain = revealedValues[existing.id] || (await decryptSensitiveValue(existing.value));
+              currentPlain = revealedValues[existing.id] || (await decryptSensitiveValue(existing.value, projectPassphrase));
             } catch {
               currentPlain = '[Encrypted Value]';
             }
@@ -806,13 +840,18 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
     try {
       for (const item of toApply) {
         if (item.status === 'new') {
-          // New variable: saved as Standard (plain text)
+          const isSens = !!item.makeSensitive;
+          let finalVal = item.value;
+          if (isSens) {
+            finalVal = await encryptSensitiveValue(item.value, projectPassphrase);
+          }
+
           const varId = 'var_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
           const newVar: EnvVariable = {
             id: varId,
             key: item.key,
-            value: item.value,
-            isSensitive: false,
+            value: finalVal,
+            isSensitive: isSens,
             environmentId: activeEnvId,
             projectId,
             memberUids: project.memberUids,
@@ -826,21 +865,25 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             newVar
           );
 
+          if (isSens) {
+            setRevealedValues((prev) => ({ ...prev, [varId]: item.value }));
+          }
+
           // Log history
           await recordHistory(
             item.key,
             'import',
             'Imported new variable (.env)',
-            false,
+            isSens,
             undefined,
-            item.value
+            isSens ? '••••••••' : item.value
           );
         } else if (item.status === 'update' && item.existingVar) {
           // Updated variable: keep sensitive status
           const isSens = item.existingVar.isSensitive;
           let finalVal = item.value;
           if (isSens) {
-            finalVal = await encryptSensitiveValue(item.value);
+            finalVal = await encryptSensitiveValue(item.value, projectPassphrase);
             setRevealedValues((prev) => ({ ...prev, [item.existingVar!.id]: item.value }));
           }
 
@@ -866,7 +909,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             'Imported updated value (.env)',
             isSens,
             item.oldValue,
-            item.value
+            isSens ? '••••••••' : item.value
           );
         }
       }
@@ -1067,6 +1110,18 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setPassphraseInput(projectPassphrase);
+                setIsPassphraseModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 transition cursor-pointer"
+              title="Configure project encryption passphrase"
+            >
+              <Lock className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Vault Key</span>
+            </button>
             <div className="text-xs text-stone-400 text-right hidden sm:block">
               <div>Creator: <span className="text-stone-700 font-medium">{project.ownerEmail}</span></div>
               <div className="mt-0.5">Updated {new Date(project.updatedAt || project.createdAt).toLocaleDateString()}</div>
@@ -1699,7 +1754,9 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                     </thead>
                     <tbody className="divide-y divide-stone-100 font-mono">
                       {importParsedItems.map((item, idx) => {
-                        const isSens = item.existingVar?.isSensitive ?? false;
+                        const isSens = item.status === 'new'
+                          ? !!item.makeSensitive
+                          : (item.existingVar?.isSensitive ?? false);
                         const displayOld = isSens ? '••••••••' : item.oldValue;
                         const displayNew = isSens ? '••••••••' : item.value;
 
@@ -1730,7 +1787,12 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                             <td className="py-2.5 px-3 text-stone-700">
                               {item.status === 'new' && (
                                 <span className="text-emerald-800 font-medium">
-                                  {displayNew} <span className="text-[10px] text-stone-400 font-sans">(will be created as Standard)</span>
+                                  {displayNew}{' '}
+                                  <span className="text-[10px] text-stone-400 font-sans">
+                                    {item.makeSensitive
+                                      ? '(will be created as Sensitive & encrypted)'
+                                      : '(will be created as Standard)'}
+                                  </span>
                                 </span>
                               )}
                               {item.status === 'update' && (
@@ -1739,7 +1801,12 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                                     - {displayOld}
                                   </div>
                                   <div className="text-emerald-800 font-medium text-[11px]">
-                                    + {displayNew} {isSens && <span className="text-[10px] text-amber-800 font-sans">(stays Sensitive & re-encrypted)</span>}
+                                    + {displayNew}{' '}
+                                    {isSens && (
+                                      <span className="text-[10px] text-amber-800 font-sans">
+                                        (stays Sensitive & re-encrypted)
+                                      </span>
+                                    )}
                                   </div>
                                 </div>
                               )}
@@ -2096,6 +2163,67 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                   className="px-5 py-2 text-xs font-semibold rounded-full text-white bg-emerald-700 hover:bg-emerald-800 active:bg-emerald-900 disabled:opacity-50 transition cursor-pointer"
                 >
                   {varActionLoading ? 'Saving...' : editingVar ? 'Update Variable' : 'Save Variable'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VAULT PASSPHRASE MODAL */}
+      {isPassphraseModalOpen && (
+        <div className="fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-md w-full p-6">
+            <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center mb-4">
+              <Lock className="w-6 h-6" />
+            </div>
+
+            <h3 className="text-lg font-bold text-stone-900 mb-1">Project Encryption Passphrase</h3>
+            <p className="text-xs text-stone-500 leading-relaxed mb-4">
+              Sensitive variables are encrypted client-side using AES-256-GCM. Deriving keys from a per-project passphrase guarantees zero-knowledge security so no master secrets are bundled with the app.
+            </p>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const trimmed = passphraseInput.trim();
+                const chosen = trimmed || `envshare-proj-${projectId}`;
+                setProjectPassphrase(chosen);
+                sessionStorage.setItem(`envshare_passphrase_${projectId}`, chosen);
+                setRevealedValues({});
+                setIsPassphraseModalOpen(false);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Passphrase / Secret Key
+                </label>
+                <input
+                  type="text"
+                  value={passphraseInput}
+                  onChange={(e) => setPassphraseInput(e.target.value)}
+                  placeholder={`envshare-proj-${projectId}`}
+                  className="w-full px-3.5 py-2 rounded-xl border border-stone-300 bg-white text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 text-xs font-mono shadow-xs transition"
+                />
+                <span className="text-[11px] text-stone-400 mt-1 block">
+                  All team members must share this passphrase to view and decrypt sensitive variables.
+                </span>
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsPassphraseModalOpen(false)}
+                  className="px-4 py-2 text-xs font-medium rounded-full text-stone-700 bg-white hover:bg-stone-50 border border-stone-300 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-semibold rounded-full text-white bg-emerald-700 hover:bg-emerald-800 transition cursor-pointer"
+                >
+                  Save Passphrase
                 </button>
               </div>
             </form>

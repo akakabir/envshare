@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
-import { auth, signOut } from './firebase.ts';
+import { auth, signOut, getRedirectResult, syncUserProfile } from './firebase.ts';
 import { ViewState } from './types.ts';
 import { Navbar } from './components/Navbar.tsx';
 import { LandingPage } from './components/LandingPage.tsx';
@@ -8,7 +8,7 @@ import { AuthView } from './components/AuthView.tsx';
 import { Dashboard } from './components/Dashboard.tsx';
 import { ProjectDetail } from './components/ProjectDetail.tsx';
 import { AccountSettings } from './components/AccountSettings.tsx';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, Sprout } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
@@ -17,6 +17,16 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'landing' | 'signin' | 'signup'>('landing');
 
   useEffect(() => {
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          syncUserProfile(result.user);
+        }
+      })
+      .catch((err) => {
+        console.error('Redirect sign-in error:', err);
+      });
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
@@ -37,12 +47,15 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[#faf9f6] flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center mx-auto mb-4 animate-pulse shadow-md shadow-indigo-600/20">
-            <KeyRound className="w-6 h-6" />
+          <div className="relative w-12 h-12 rounded-full bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 flex items-center justify-center text-white mx-auto mb-4 animate-pulse shadow-md shadow-emerald-700/20">
+            <Sprout className="w-6 h-6 text-emerald-100" />
+            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-900 text-amber-100 border border-white flex items-center justify-center">
+              <KeyRound className="w-2.5 h-2.5" />
+            </div>
           </div>
-          <p className="text-sm font-medium text-slate-600">Loading EnvShare...</p>
+          <p className="text-sm font-medium text-stone-600">Loading EnvShare...</p>
         </div>
       </div>
     );
