@@ -6,6 +6,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  getDocs,
   collection,
   onSnapshot,
   db,
@@ -53,6 +54,7 @@ import {
   Sparkles,
   Sprout,
   Leaf,
+  LogOut,
 } from 'lucide-react';
 
 interface ProjectDetailProps {
@@ -151,6 +153,66 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [memberEmail, setMemberEmail] = useState('');
   const [addLoading, setAddLoading] = useState(false);
   const [memberMessage, setMemberMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
+
+  // Project Deletion / Leave State
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [confirmNameInput, setConfirmNameInput] = useState('');
+
+  const handleDeleteProject = async () => {
+    if (!project || project.ownerId !== user.uid) return;
+    setDeleteLoading(true);
+    try {
+      // Delete all variables & environments
+      for (const env of environments) {
+        try {
+          const varsSnap = await getDocs(
+            collection(db, 'projects', projectId, 'environments', env.id, 'variables')
+          );
+          await Promise.all(varsSnap.docs.map((d) => deleteDoc(d.ref)));
+        } catch {
+          // continue
+        }
+        try {
+          await deleteDoc(doc(db, 'projects', projectId, 'environments', env.id));
+        } catch {
+          // continue
+        }
+      }
+
+      // Delete project document
+      await deleteDoc(doc(db, 'projects', projectId));
+
+      localStorage.removeItem('last_project_id');
+      setDeleteConfirmOpen(false);
+      onBack();
+    } catch (err: any) {
+      console.error('Delete project error:', err);
+      alert('Failed to delete project: ' + (err.message || String(err)));
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleLeaveProject = async () => {
+    if (!project || project.ownerId === user.uid) return;
+    const confirmed = window.confirm(`Are you sure you want to leave the workspace "${project.name}"?`);
+    if (!confirmed) return;
+
+    try {
+      await updateDoc(doc(db, 'projects', projectId), {
+        memberUids: project.memberUids.filter((id) => id !== user.uid),
+        memberEmails: project.memberEmails.filter(
+          (email) => email.toLowerCase() !== (user.email || '').toLowerCase()
+        ),
+      });
+      localStorage.removeItem('last_project_id');
+      onBack();
+    } catch (err: any) {
+      console.error('Leave project error:', err);
+      alert('Failed to leave project: ' + (err.message || String(err)));
+    }
+  };
 
   // 1. Listen to Project Document
   useEffect(() => {
@@ -1148,6 +1210,32 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
               <Lock className="w-3.5 h-3.5 text-emerald-700" />
               <span>Vault Key</span>
             </button>
+
+            {isOwner ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmNameInput('');
+                  setDeleteConfirmOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition cursor-pointer"
+                title="Delete this workspace"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span>Delete Project</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleLeaveProject}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-stone-100 hover:bg-rose-50 text-stone-700 hover:text-rose-700 border border-stone-200 hover:border-rose-200 transition cursor-pointer"
+                title="Leave this shared workspace"
+              >
+                <LogOut className="w-3.5 h-3.5 text-stone-500 hover:text-rose-600" />
+                <span>Leave Project</span>
+              </button>
+            )}
+
             <div className="text-xs text-stone-400 text-right hidden sm:block">
               <div>Creator: <span className="text-stone-700 font-medium">{project.ownerEmail}</span></div>
               <div className="mt-0.5">Updated {new Date(project.updatedAt || project.createdAt).toLocaleDateString()}</div>
@@ -2322,6 +2410,56 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                 className="px-5 py-2 text-xs font-semibold rounded-full text-white bg-emerald-700 hover:bg-emerald-800 transition cursor-pointer"
               >
                 Save & Apply Key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Project Confirmation Modal */}
+      {deleteConfirmOpen && project && (
+        <div className="fixed inset-0 z-50 bg-stone-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl border border-stone-200 max-w-md w-full p-6">
+            <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center mb-3">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+            </div>
+            <h3 className="text-lg font-bold text-stone-900 mb-1">Delete Project</h3>
+            <p className="text-xs text-stone-500 mb-4">
+              This action is <span className="font-semibold text-rose-700">permanent and irreversible</span>. All environments,
+              variables, and history will be deleted. Type <span className="font-mono font-semibold text-stone-800">{project.name}</span> to confirm.
+            </p>
+
+            <input
+              type="text"
+              value={confirmNameInput}
+              onChange={(e) => setConfirmNameInput(e.target.value)}
+              placeholder={`Type "${project.name}" to confirm`}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-stone-300 bg-white text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 text-xs shadow-xs transition mb-5"
+            />
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => { setDeleteConfirmOpen(false); setConfirmNameInput(''); }}
+                disabled={deleteLoading}
+                className="px-4 py-2 text-xs font-semibold rounded-full text-stone-700 bg-white hover:bg-stone-50 border border-stone-300 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteProject}
+                disabled={deleteLoading || confirmNameInput !== project.name}
+                className="inline-flex items-center justify-center gap-2 px-5 py-2 text-xs font-semibold rounded-full text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm transition cursor-pointer"
+              >
+                {deleteLoading ? (
+                  <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Forever</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
