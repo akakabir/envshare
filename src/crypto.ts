@@ -10,6 +10,7 @@
  *  - AES-256-GCM with random 16-byte salt and 12-byte IV per value
  *  - Supports generating high-entropy custom keys per project
  *  - Graceful fallback and compatibility with both WebCrypto and Node GCM layouts
+ *  - Custom keys stored only as ciphertext in IndexedDB (never plaintext browser storage)
  */
 
 const ITERATIONS = 310_000;
@@ -69,36 +70,133 @@ export function generateEncryptionKey(): string {
   return Array.from(randomBytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/* ------------------------------------------------------------------
+ * Encrypted-at-rest key store (IndexedDB)
+ *
+ * Custom per-project keys are NEVER written to localStorage or
+ * sessionStorage in plaintext. Each key is AES-GCM encrypted with a
+ * non-extractable wrapping key that lives in IndexedDB. JavaScript can
+ * use the wrapping key but cannot export its raw bytes.
+ * ------------------------------------------------------------------ */
+
+const KEY_DB_NAME = 'envshare-keystore';
+const KEY_STORE_NAME = 'keys';
+const WRAP_KEY_ID = '__wrap_key__';
+
+function openKeyDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(KEY_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      req.result.createObjectStore(KEY_STORE_NAME);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbRun<T>(
+  mode: IDBTransactionMode,
+  op: (store: IDBObjectStore) => IDBRequest<T>
+): Promise<T> {
+  const db = await openKeyDb();
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const tx = db.transaction(KEY_STORE_NAME, mode);
+      const req = op(tx.objectStore(KEY_STORE_NAME));
+      tx.oncomplete = () => resolve(req.result);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function getWrapKey(): Promise<CryptoKey> {
+  const existing = await idbRun<CryptoKey | undefined>('readonly', (st) => st.get(WRAP_KEY_ID));
+  if (existing) return existing;
+  // extractable = false: the raw key material can never be read back by JS
+  const key = await window.crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+  await idbRun('readwrite', (st) => st.put(key, WRAP_KEY_ID));
+  return key;
+}
+
+interface StoredKeyRecord {
+  iv: Uint8Array;
+  ct: ArrayBuffer;
+}
+
+/**
+ * Moves any legacy plaintext key from localStorage / sessionStorage into the
+ * encrypted store, then removes the plaintext copy.
+ */
+async function migrateLegacyKey(projectId: string): Promise<void> {
+  const name = `envshare_key_${projectId}`;
+  for (const store of [window.localStorage, window.sessionStorage]) {
+    try {
+      const legacy = store.getItem(name);
+      if (legacy === null) continue;
+      if (legacy.trim()) {
+        await setProjectPassphrase(projectId, legacy);
+      }
+      store.removeItem(name);
+    } catch {
+      // storage unavailable or blocked; nothing to migrate
+    }
+  }
+}
+
 /**
  * Returns the effective encryption passphrase for a project.
- * Reads custom key from sessionStorage if set, or defaults to a stable per-project key.
+ * Uses the user's custom key if one is saved (decrypted from the encrypted
+ * store), otherwise the per-project default.
  */
-export function getProjectPassphrase(projectIdOrKey: string): string {
+export async function getProjectPassphrase(projectIdOrKey: string): Promise<string> {
   if (!projectIdOrKey) return 'envshare-default-vault';
+  await migrateLegacyKey(projectIdOrKey);
   try {
-    const custom = sessionStorage.getItem(`envshare_key_${projectIdOrKey}`);
-    if (custom && custom.trim()) {
-      return custom.trim();
+    const stored = await idbRun<StoredKeyRecord | undefined>('readonly', (st) =>
+      st.get(`key:${projectIdOrKey}`)
+    );
+    if (stored) {
+      const wrapKey = await getWrapKey();
+      const pt = await window.crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: stored.iv as BufferSource },
+        wrapKey,
+        stored.ct
+      );
+      const custom = new TextDecoder().decode(pt).trim();
+      if (custom) return custom;
     }
   } catch {
-    // sessionStorage might be restricted
+    // Unreadable record: fall back to the default passphrase
   }
   return `envshare-proj-${projectIdOrKey}`;
 }
 
 /**
- * Saves a user-generated or custom key for a project in sessionStorage.
+ * Saves a user-generated or custom key for a project, encrypted at rest.
+ * Passing an empty key removes the custom key.
  */
-export function setProjectPassphrase(projectId: string, key: string): void {
-  try {
-    if (key && key.trim()) {
-      sessionStorage.setItem(`envshare_key_${projectId}`, key.trim());
-    } else {
-      sessionStorage.removeItem(`envshare_key_${projectId}`);
-    }
-  } catch {
-    // ignore
+export async function setProjectPassphrase(projectId: string, key: string): Promise<void> {
+  const trimmed = key.trim();
+  if (!trimmed) {
+    await idbRun('readwrite', (st) => st.delete(`key:${projectId}`));
+    return;
   }
+  const wrapKey = await getWrapKey();
+  const iv = window.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+  const ct = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    wrapKey,
+    new TextEncoder().encode(trimmed)
+  );
+  const record: StoredKeyRecord = { iv, ct };
+  await idbRun('readwrite', (st) => st.put(record, `key:${projectId}`));
 }
 
 /**
@@ -108,7 +206,7 @@ export function setProjectPassphrase(projectId: string, key: string): void {
  */
 export async function encryptSensitiveValue(plainText: string, projectIdOrKey: string): Promise<string> {
   if (!plainText) return '';
-  const passphrase = getProjectPassphrase(projectIdOrKey);
+  const passphrase = await getProjectPassphrase(projectIdOrKey);
   const enc = new TextEncoder();
   const salt = window.crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
   const iv = window.crypto.getRandomValues(new Uint8Array(IV_LENGTH));
@@ -157,7 +255,7 @@ export async function decryptSensitiveValue(base64Payload: string, projectIdOrKe
   const data = combined.slice(SALT_LENGTH + IV_LENGTH);
 
   // Try configured passphrase, then default per-project key as fallback
-  const primaryPass = getProjectPassphrase(projectIdOrKey);
+  const primaryPass = await getProjectPassphrase(projectIdOrKey);
   const candidates = [primaryPass];
   const fallback = `envshare-proj-${projectIdOrKey}`;
   if (!candidates.includes(fallback)) {

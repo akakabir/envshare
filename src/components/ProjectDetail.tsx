@@ -109,7 +109,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [editingVar, setEditingVar] = useState<EnvVariable | null>(null);
   const [varKeyInput, setVarKeyInput] = useState('');
   const [varValInput, setVarValInput] = useState('');
-  const [varSensitiveInput, setVarSensitiveInput] = useState(false);
+  const [varSensitiveInput, setVarSensitiveInput] = useState(true);
   const [varActionLoading, setVarActionLoading] = useState(false);
   const [varError, setVarError] = useState<string | null>(null);
 
@@ -496,7 +496,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
     setEditingVar(null);
     setVarKeyInput('');
     setVarValInput('');
-    setVarSensitiveInput(false);
+    setVarSensitiveInput(true);
     setVarError(null);
     setIsVarModalOpen(true);
   };
@@ -863,7 +863,8 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
 
         if (!existing) {
           // 🟢 New
-          const isSens = SENSITIVE_KEY_PATTERN.test(item.key);
+          // Encrypted by default: every imported variable is stored as Sensitive.
+          const isSens = true;
           items.push({
             key: item.key,
             value: item.value,
@@ -1198,8 +1199,8 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => {
-                setProjectKeyInput(getProjectPassphrase(projectId));
+              onClick={async () => {
+                setProjectKeyInput(await getProjectPassphrase(projectId));
                 setKeySavedMsg(false);
                 setKeyCopied(false);
                 setIsPassphraseModalOpen(true);
@@ -2398,8 +2399,13 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setProjectPassphrase(projectId, projectKeyInput.trim());
+                onClick={async () => {
+                  try {
+                    await setProjectPassphrase(projectId, projectKeyInput.trim());
+                  } catch (err: any) {
+                    alert('Could not save encryption key: ' + err.message);
+                    return;
+                  }
                   setRevealedValues({});
                   setKeySavedMsg(true);
                   setTimeout(() => {
