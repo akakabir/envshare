@@ -66,15 +66,29 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({
         await reauthenticateWithPopup(user, googleProvider);
       }
 
-      const ownedProjectsQuery = query(
+      // Firestore rules only allow listing projects whose memberUids contain the
+      // caller, so query on that field and filter by owner here. A query on
+      // ownerId alone is rejected with "insufficient permissions".
+      const memberProjectsQuery = query(
         collection(db, 'projects'),
-        where('ownerId', '==', user.uid)
+        where('memberUids', 'array-contains', user.uid)
       );
-      const ownedSnap = await getDocs(ownedProjectsQuery);
-      const deleteProjectPromises = ownedSnap.docs.map((docSnap) =>
-        deleteDoc(doc(db, 'projects', docSnap.id))
-      );
-      await Promise.all(deleteProjectPromises);
+      const memberSnap = await getDocs(memberProjectsQuery);
+      const ownedDocs = memberSnap.docs.filter((docSnap) => docSnap.data().ownerId === user.uid);
+
+      for (const projectDoc of ownedDocs) {
+        // Subcollections are not deleted with the parent, and the rules need the
+        // project to still exist, so remove variables and environments first.
+        const envSnap = await getDocs(collection(db, 'projects', projectDoc.id, 'environments'));
+        for (const envDoc of envSnap.docs) {
+          const varSnap = await getDocs(
+            collection(db, 'projects', projectDoc.id, 'environments', envDoc.id, 'variables')
+          );
+          await Promise.all(varSnap.docs.map((v) => deleteDoc(v.ref)));
+          await deleteDoc(envDoc.ref);
+        }
+        await deleteDoc(projectDoc.ref);
+      }
 
       if (user.email) {
         const sharedProjectsQuery = query(
