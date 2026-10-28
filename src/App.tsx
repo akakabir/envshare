@@ -12,25 +12,28 @@ import { TermsOfService } from './components/TermsOfService.tsx';
 import { PrivacyPolicy } from './components/PrivacyPolicy.tsx';
 import { KeyRound, Sprout } from 'lucide-react';
 
-type LegalPage = 'privacy' | 'terms';
+type AppRoute = 'landing' | 'signin' | 'signup' | 'terms' | 'privacy';
 
-// Maps the browser URL to a public legal page so /privacy and /tos are real,
-// shareable URLs (needed for the Google OAuth consent screen).
-const legalPageFromPath = (): LegalPage | null => {
-  const p = window.location.pathname.replace(/\/+$/, '');
-  return p === '/privacy' ? 'privacy' : (p === '/terms' || p === '/tos') ? 'terms' : null;
+// Maps the browser URL to designated public routes (/signup, /login, /privacy, /tos).
+const routeFromPath = (): AppRoute => {
+  const p = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+  if (p === '/privacy') return 'privacy';
+  if (p === '/terms' || p === '/tos') return 'terms';
+  if (p === '/signup' || p === '/register') return 'signup';
+  if (p === '/login' || p === '/signin') return 'signin';
+  return 'landing';
 };
 
 export default function App() {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [viewState, setViewState] = useState<ViewState>(() => {
-    const legal = legalPageFromPath();
-    return legal ? { type: legal } : { type: 'dashboard' };
+    const route = routeFromPath();
+    if (route === 'privacy') return { type: 'privacy' };
+    if (route === 'terms') return { type: 'terms' };
+    return { type: 'dashboard' };
   });
-  const [authMode, setAuthMode] = useState<'landing' | 'signin' | 'signup' | 'terms' | 'privacy'>(
-    () => legalPageFromPath() ?? 'landing'
-  );
+  const [authMode, setAuthMode] = useState<AppRoute>(() => routeFromPath());
 
   useEffect(() => {
     getRedirectResult(auth)
@@ -51,27 +54,52 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Keep the address bar in sync with the legal pages.
+  // Keep the address bar in sync with the current page.
   useEffect(() => {
     if (loading) return;
-    const screen = user ? viewState.type : authMode;
-    const currentPath = window.location.pathname.replace(/\/+$/, '');
-    const path = screen === 'privacy'
-      ? '/privacy'
-      : screen === 'terms'
-        ? (currentPath === '/terms' ? '/terms' : '/tos')
-        : '/';
-    if (window.location.pathname !== path) {
-      window.history.pushState({}, '', path);
+    let targetPath = '/';
+    if (!user) {
+      if (authMode === 'privacy') {
+        targetPath = '/privacy';
+      } else if (authMode === 'terms') {
+        const cur = window.location.pathname.toLowerCase();
+        targetPath = cur === '/terms' ? '/terms' : '/tos';
+      } else if (authMode === 'signup') {
+        targetPath = '/signup';
+      } else if (authMode === 'signin') {
+        const cur = window.location.pathname.toLowerCase();
+        targetPath = cur === '/signin' ? '/signin' : '/login';
+      } else {
+        targetPath = '/';
+      }
+    } else {
+      if (viewState.type === 'privacy') {
+        targetPath = '/privacy';
+      } else if (viewState.type === 'terms') {
+        const cur = window.location.pathname.toLowerCase();
+        targetPath = cur === '/terms' ? '/terms' : '/tos';
+      } else {
+        targetPath = '/';
+      }
+    }
+
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
     }
   }, [user, viewState, authMode, loading]);
 
   // Browser back/forward buttons.
   useEffect(() => {
     const onPopState = () => {
-      const legal = legalPageFromPath();
-      setAuthMode(legal ?? 'landing');
-      setViewState(legal ? { type: legal } : { type: 'dashboard' });
+      const route = routeFromPath();
+      setAuthMode(route);
+      if (route === 'privacy') {
+        setViewState({ type: 'privacy' });
+      } else if (route === 'terms') {
+        setViewState({ type: 'terms' });
+      } else {
+        setViewState({ type: 'dashboard' });
+      }
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -137,7 +165,8 @@ export default function App() {
 
     return (
       <AuthView
-        initialMode={authMode}
+        initialMode={authMode === 'signup' ? 'signup' : 'signin'}
+        onModeChange={(mode) => setAuthMode(mode)}
         onSuccess={() => setViewState({ type: 'dashboard' })}
         onBackToLanding={() => setAuthMode('landing')}
         onOpenTerms={() => setAuthMode('terms')}

@@ -23,6 +23,7 @@ import {
 
 interface AuthViewProps {
   initialMode?: 'signin' | 'signup';
+  onModeChange?: (mode: 'signin' | 'signup') => void;
   onSuccess?: () => void;
   onBackToLanding?: () => void;
   onOpenTerms?: () => void;
@@ -31,12 +32,18 @@ interface AuthViewProps {
 
 export const AuthView: React.FC<AuthViewProps> = ({
   initialMode = 'signin',
+  onModeChange,
   onSuccess,
   onBackToLanding,
   onOpenTerms,
   onOpenPrivacy,
 }) => {
   const [isSignUp, setIsSignUp] = useState(initialMode === 'signup');
+
+  React.useEffect(() => {
+    setIsSignUp(initialMode === 'signup');
+  }, [initialMode]);
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -155,6 +162,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               onClick={() => {
                 setIsSignUp(false);
                 setError(null);
+                onModeChange?.('signin');
               }}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-full transition cursor-pointer ${
                 !isSignUp
@@ -169,6 +177,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
               onClick={() => {
                 setIsSignUp(true);
                 setError(null);
+                onModeChange?.('signup');
               }}
               className={`flex-1 py-1.5 text-xs font-semibold rounded-full transition cursor-pointer ${
                 isSignUp

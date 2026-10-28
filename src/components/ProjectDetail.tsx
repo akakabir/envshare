@@ -16,7 +16,13 @@ import {
   OperationType,
 } from '../firebase.ts';
 import { Project, Environment, EnvVariable, HistoryEntry, UserLookup } from '../types.ts';
-import { encryptSensitiveValue, decryptSensitiveValue } from '../crypto.ts';
+import {
+  encryptSensitiveValue,
+  decryptSensitiveValue,
+  generateEncryptionKey,
+  getProjectPassphrase,
+  setProjectPassphrase,
+} from '../crypto.ts';
 import {
   ArrowLeft,
   Users,
@@ -112,10 +118,11 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [importParsing, setImportParsing] = useState(false);
   const [importApplying, setImportApplying] = useState(false);
 
-  // Encryption is now fully server-side (Firebase Cloud Function).
-  // The ENCRYPTION_SECRET lives in Google Cloud Secret Manager — never in the browser.
-  // projectId is passed as the key context; the server derives a unique per-project key.
+  // Project Encryption Key State
   const [isPassphraseModalOpen, setIsPassphraseModalOpen] = useState(false);
+  const [projectKeyInput, setProjectKeyInput] = useState('');
+  const [keyCopied, setKeyCopied] = useState(false);
+  const [keySavedMsg, setKeySavedMsg] = useState(false);
 
   // History State
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -1111,6 +1118,9 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             <button
               type="button"
               onClick={() => {
+                setProjectKeyInput(getProjectPassphrase(projectId));
+                setKeySavedMsg(false);
+                setKeyCopied(false);
                 setIsPassphraseModalOpen(true);
               }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-700 border border-stone-200 transition cursor-pointer"
@@ -2167,35 +2177,120 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         </div>
       )}
 
-      {/* ENCRYPTION INFO MODAL */}
+      {/* VAULT ENCRYPTION KEY MODAL */}
       {isPassphraseModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
           onClick={() => setIsPassphraseModalOpen(false)}
         >
           <div
-            className="bg-white rounded-2xl shadow-2xl p-7 w-full max-w-md relative"
+            className="bg-white rounded-2xl shadow-2xl p-7 w-full max-w-lg relative"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center mb-4">
-              <Lock className="w-6 h-6" />
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-stone-900">Project Encryption Key</h3>
+                <p className="text-xs text-stone-500">AES-256-GCM · PBKDF2 (310k iter) · Client-Side</p>
+              </div>
             </div>
-            <h3 className="text-lg font-bold text-stone-900 mb-1">Server-Side Encryption Active</h3>
-            <p className="text-xs text-stone-500 leading-relaxed mb-4">
-              Sensitive variables are encrypted and decrypted via a secure Firebase Cloud Function.
-              The master secret lives in Google Cloud Secret Manager and never reaches your browser.
-              Each project uses a unique derived key — so even with the same master secret, projects are cryptographically isolated.
+
+            <p className="text-xs text-stone-600 leading-relaxed mb-4">
+              Sensitive variables are encrypted directly in your browser before saving.
+              You can generate a cryptographically strong 256-bit key or specify your own custom secret key.
             </p>
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-xs text-emerald-800 font-mono mb-4">
-              AES-256-GCM · PBKDF2 (SHA-256, 310k iter) · Server-side key
+
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Active Encryption Key / Passphrase
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={projectKeyInput}
+                    onChange={(e) => {
+                      setProjectKeyInput(e.target.value);
+                      setKeySavedMsg(false);
+                    }}
+                    placeholder={`envshare-proj-${projectId}`}
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-stone-300 bg-stone-50/50 text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 text-xs font-mono shadow-xs transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (projectKeyInput) {
+                        await navigator.clipboard.writeText(projectKeyInput);
+                        setKeyCopied(true);
+                        setTimeout(() => setKeyCopied(false), 2000);
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl text-xs font-medium text-stone-700 bg-stone-100 hover:bg-stone-200 border border-stone-200 transition cursor-pointer"
+                    title="Copy key"
+                  >
+                    {keyCopied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newKey = generateEncryptionKey();
+                    setProjectKeyInput(newKey);
+                    setKeySavedMsg(false);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 transition cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Generate Strong 256-Bit Key</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProjectKeyInput(`envshare-proj-${projectId}`);
+                    setKeySavedMsg(false);
+                  }}
+                  className="px-3 py-1.5 rounded-full text-xs font-medium text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 transition cursor-pointer"
+                >
+                  Reset to Project Default
+                </button>
+              </div>
+
+              {keySavedMsg && (
+                <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Encryption key applied and saved for this session!</span>
+                </div>
+              )}
             </div>
-            <div className="pt-2 flex items-center justify-end">
+
+            <div className="pt-2 flex items-center justify-end gap-2 border-t border-stone-100">
               <button
                 type="button"
                 onClick={() => setIsPassphraseModalOpen(false)}
+                className="px-4 py-2 text-xs font-medium rounded-full text-stone-600 hover:bg-stone-100 transition cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setProjectPassphrase(projectId, projectKeyInput.trim());
+                  setRevealedValues({});
+                  setKeySavedMsg(true);
+                  setTimeout(() => {
+                    setIsPassphraseModalOpen(false);
+                    setKeySavedMsg(false);
+                  }, 900);
+                }}
                 className="px-5 py-2 text-xs font-semibold rounded-full text-white bg-emerald-700 hover:bg-emerald-800 transition cursor-pointer"
               >
-                Got it
+                Save & Apply Key
               </button>
             </div>
           </div>
