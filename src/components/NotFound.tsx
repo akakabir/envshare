@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sprout, KeyRound, Compass, ArrowLeft, Home } from 'lucide-react';
+import { Compass, ArrowLeft, Home } from 'lucide-react';
 
 interface NotFoundProps {
   onGoHome: () => void;
@@ -17,12 +17,7 @@ export const NotFound: React.FC<NotFoundProps> = ({
       {/* Top Header */}
       <div className="max-w-4xl mx-auto w-full flex items-center justify-between pb-6 border-b border-stone-200">
         <div className="flex items-center gap-2 cursor-pointer" onClick={onGoHome}>
-          <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 flex items-center justify-center text-white shadow-sm">
-            <Sprout className="w-4 h-4 text-emerald-100" />
-            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-900 text-amber-100 border border-white flex items-center justify-center">
-              <KeyRound className="w-2 h-2" />
-            </div>
-          </div>
+          <img src="/logo.png" alt="EnvShare logo" className="w-8 h-8 object-contain" />
           <span className="font-extrabold text-stone-900 text-base tracking-tight">EnvShare</span>
         </div>
 

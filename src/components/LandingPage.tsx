@@ -195,12 +195,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         <div className="bg-stone-950/70 hover:bg-stone-950/80 backdrop-blur-xl rounded-full border border-white/20 shadow-xl shadow-stone-950/20 px-4 sm:px-6 py-2.5 flex items-center justify-between transition-all">
           {/* Logo with Green and Brown Plant Theme */}
           <div className="flex items-center gap-2.5">
-            <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 flex items-center justify-center text-white shadow-sm">
-              <Sprout className="w-4 h-4 text-emerald-100" />
-              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-900 text-amber-100 border border-stone-900 flex items-center justify-center">
-                <KeyRound className="w-2 h-2" />
-              </div>
-            </div>
+            <img src="/logo.png" alt="EnvShare logo" className="w-8 h-8 object-contain rounded-full bg-white p-0.5" />
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-white tracking-tight text-lg">
                 EnvShare

@@ -11,7 +11,6 @@ import { AccountSettings } from './components/AccountSettings.tsx';
 import { TermsOfService } from './components/TermsOfService.tsx';
 import { PrivacyPolicy } from './components/PrivacyPolicy.tsx';
 import { NotFound } from './components/NotFound.tsx';
-import { KeyRound, Sprout } from 'lucide-react';
 
 interface ParsedRoute {
   screen: 'landing' | 'signin' | 'signup' | 'privacy' | 'terms' | 'projects' | 'project' | 'settings' | 'notfound';
@@ -190,12 +189,8 @@ export default function App() {
     return (
       <div className="min-h-screen bg-[#faf9f6] flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="relative w-12 h-12 rounded-full bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 flex items-center justify-center text-white mx-auto mb-4 animate-pulse shadow-md shadow-emerald-700/20">
-            <Sprout className="w-6 h-6 text-emerald-100" />
-            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-900 text-amber-100 border border-white flex items-center justify-center">
-              <KeyRound className="w-2.5 h-2.5" />
-            </div>
-          </div>
+          {/* CHANGED: logo image replaces the Sprout + KeyRound icon block */}
+          <img src="/logo.png" alt="EnvShare logo" className="w-16 h-16 mx-auto mb-4 animate-pulse" />
           <p className="text-sm font-medium text-stone-600">Loading EnvShare...</p>
         </div>
       </div>

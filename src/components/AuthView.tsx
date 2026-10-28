@@ -11,13 +11,11 @@ import {
   getFriendlyAuthErrorMessage,
 } from '../firebase.ts';
 import {
-  KeyRound,
   Shield,
   AlertCircle,
   ArrowRight,
   CheckCircle2,
   Lock,
-  Sprout,
   Leaf,
 } from 'lucide-react';
 
@@ -137,12 +135,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
 
         {/* Brand Header with Eco-Vault Sprout Logo */}
         <div className="flex justify-center">
-          <div className="relative w-12 h-12 rounded-full bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 flex items-center justify-center text-white shadow-md shadow-emerald-700/20">
-            <Sprout className="w-6 h-6 text-emerald-100" />
-            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-amber-900 text-amber-100 border border-white flex items-center justify-center">
-              <KeyRound className="w-2.5 h-2.5" />
-            </div>
-          </div>
+          <img src="/logo.png" alt="EnvShare logo" className="w-16 h-16 object-contain" />
         </div>
 
         <h2 className="mt-4 text-center text-2xl font-extrabold tracking-tight text-stone-900">

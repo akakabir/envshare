@@ -1,6 +1,6 @@
 import React from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
-import { Sprout, KeyRound, LayoutDashboard, Settings, LogOut, Leaf, FileText, Shield } from 'lucide-react';
+import { LayoutDashboard, Settings, LogOut, Leaf, FileText, Shield } from 'lucide-react';
 import { ViewState } from '../types.ts';
 
 interface NavbarProps {
@@ -30,12 +30,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             className="flex items-center gap-2.5 text-left focus:outline-none group cursor-pointer"
           >
             {/* Redesigned Botanic Logo: Sprout + Key in Earth & Forest Gradient */}
-            <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-emerald-600 via-emerald-700 to-teal-800 flex items-center justify-center text-white shadow-sm group-hover:scale-105 transition-transform">
-              <Sprout className="w-4 h-4 text-emerald-100" />
-              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-900 text-amber-100 border border-white flex items-center justify-center">
-                <KeyRound className="w-2 h-2" />
-              </div>
-            </div>
+            <img src="/logo.png" alt="EnvShare logo" className="w-8 h-8 object-contain group-hover:scale-105 transition-transform" />
 
             <div className="flex items-center gap-2">
               <span className="font-extrabold text-stone-900 tracking-tight text-base">
