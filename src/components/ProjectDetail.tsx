@@ -58,6 +58,8 @@ import {
 interface ProjectDetailProps {
   projectId: string;
   user: FirebaseUser;
+  initialTab?: 'variables' | 'members' | 'history';
+  onTabChange?: (tab: 'variables' | 'members' | 'history') => void;
   onBack: () => void;
 }
 
@@ -75,13 +77,17 @@ interface ParsedImportItem {
 export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   projectId,
   user,
+  initialTab = 'variables',
+  onTabChange,
   onBack,
 }) => {
   const [project, setProject] = useState<Project | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
 
   // Active sub-tab in project: 'variables' or 'members'
-  const [activeTab, setActiveTab] = useState<'variables' | 'members'>('variables');
+  const [activeTab, setActiveTab] = useState<'variables' | 'members'>(
+    initialTab === 'members' ? 'members' : 'variables'
+  );
 
   // Environments
   const [environments, setEnvironments] = useState<Environment[]>([]);
@@ -125,9 +131,21 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [keySavedMsg, setKeySavedMsg] = useState(false);
 
   // History State
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(initialTab === 'history');
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialTab === 'history') {
+      setIsHistoryOpen(true);
+    } else if (initialTab === 'members') {
+      setActiveTab('members');
+      setIsHistoryOpen(false);
+    } else if (initialTab === 'variables') {
+      setActiveTab('variables');
+      setIsHistoryOpen(false);
+    }
+  }, [initialTab]);
 
   // Member invite state
   const [memberEmail, setMemberEmail] = useState('');
@@ -316,14 +334,14 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
 
   // Quick Seed Environment Helper
   const handleQuickCreateEnv = async (name: string) => {
-    if (!project) return;
     const envId = 'env_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
     const now = new Date().toISOString();
+    const effectiveUids = project?.memberUids && project.memberUids.length > 0 ? project.memberUids : [user.uid];
     const envData: Environment = {
       id: envId,
       name,
       projectId,
-      memberUids: project.memberUids,
+      memberUids: effectiveUids,
       createdAt: now,
       updatedAt: now,
     };
@@ -331,14 +349,14 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       await setDoc(doc(db, 'projects', projectId, 'environments', envId), envData);
       setActiveEnvId(envId);
     } catch (err: any) {
-      handleFirestoreError(err, OperationType.CREATE, `projects/${projectId}/environments/${envId}`);
+      console.error('Failed to create environment:', err);
+      alert('Could not create environment: ' + (err.message || String(err)));
     }
   };
 
   // Environment Create / Rename
   const handleSaveEnvironment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!project) return;
     const trimmed = envNameInput.trim();
     if (!trimmed) {
       setEnvError('Environment name is required.');
@@ -362,11 +380,12 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       if (envModalMode === 'create') {
         const envId = 'env_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
         const now = new Date().toISOString();
+        const effectiveUids = project?.memberUids && project.memberUids.length > 0 ? project.memberUids : [user.uid];
         const envData: Environment = {
           id: envId,
           name: trimmed,
           projectId,
-          memberUids: project.memberUids,
+          memberUids: effectiveUids,
           createdAt: now,
           updatedAt: now,
         };
@@ -381,7 +400,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       setIsEnvModalOpen(false);
       setEnvNameInput('');
     } catch (err: any) {
-      setEnvError(err.message || 'Operation failed');
+      setEnvError(err.message || 'Operation failed. Please check permissions.');
     } finally {
       setEnvActionLoading(false);
     }
@@ -1139,7 +1158,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         {/* Navigation Tabs (Variables vs Members) */}
         <div className="flex items-center gap-2 mt-6 pt-4 border-t border-stone-100">
           <button
-            onClick={() => setActiveTab('variables')}
+            onClick={() => {
+              setActiveTab('variables');
+              onTabChange?.('variables');
+            }}
             className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-full transition cursor-pointer ${
               activeTab === 'variables'
                 ? 'bg-stone-900 text-white shadow-xs'
@@ -1156,7 +1178,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
           </button>
 
           <button
-            onClick={() => setActiveTab('members')}
+            onClick={() => {
+              setActiveTab('members');
+              onTabChange?.('members');
+            }}
             className={`inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-full transition cursor-pointer ${
               activeTab === 'members'
                 ? 'bg-stone-900 text-white shadow-xs'
@@ -1166,7 +1191,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             <Users className="w-3.5 h-3.5" />
             <span>Team Members</span>
             <span className="bg-stone-200 text-stone-700 px-1.5 py-0.2 rounded-full text-[10px]">
-              {project.memberEmails.length}
+              {project?.memberEmails?.length || 1}
             </span>
           </button>
         </div>
@@ -1214,7 +1239,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
               <div className="flex items-center gap-2 self-end sm:self-auto ml-auto">
                 {/* History Button (Part 5) */}
                 <button
-                  onClick={() => setIsHistoryOpen(true)}
+                  onClick={() => {
+                    setIsHistoryOpen(true);
+                    onTabChange?.('history');
+                  }}
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-stone-700 bg-white hover:bg-stone-50 border border-stone-300 rounded-full shadow-xs transition cursor-pointer"
                   title="View Change History"
                 >
@@ -1999,7 +2027,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             <div className="pt-3 border-t border-stone-200 flex justify-end">
               <button
                 type="button"
-                onClick={() => setIsHistoryOpen(false)}
+                onClick={() => {
+                  setIsHistoryOpen(false);
+                  onTabChange?.('variables');
+                }}
                 className="px-5 py-2 text-xs font-semibold rounded-full text-stone-700 bg-white hover:bg-stone-50 border border-stone-300 transition cursor-pointer"
               >
                 Close History

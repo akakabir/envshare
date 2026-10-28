@@ -11,7 +11,7 @@ import {
   handleFirestoreError,
   OperationType,
 } from '../firebase.ts';
-import { Project } from '../types.ts';
+import { Project, Environment } from '../types.ts';
 import {
   Plus,
   Search,
@@ -98,6 +98,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onSelectProject }) =
 
     try {
       await setDoc(doc(db, 'projects', projectId), projectData);
+
+      // Automatically initialize default Development environment
+      const envId = 'env_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+      const envData: Environment = {
+        id: envId,
+        name: 'Development',
+        projectId,
+        memberUids: [user.uid],
+        createdAt: now,
+        updatedAt: now,
+      };
+      await setDoc(doc(db, 'projects', projectId, 'environments', envId), envData);
+
       setNewProjectName('');
       setNewProjectDesc('');
       setIsCreateOpen(false);

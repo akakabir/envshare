@@ -11,7 +11,10 @@ service cloud.firestore {
     }
 
     function isProjectMember(projectId) {
-      return isSignedIn() && (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids);
+      return isSignedIn() && (
+        (request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.memberUids) ||
+        (request.auth.uid == get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId)
+      );
     }
 
     function incoming() {

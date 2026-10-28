@@ -1,3 +1,4 @@
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -64,7 +65,8 @@ export interface HistoryEntry {
 
 export type ViewState = 
   | { type: 'dashboard' }
-  | { type: 'project'; projectId: string }
+  | { type: 'project'; projectId: string; tab?: 'variables' | 'members' | 'history' }
   | { type: 'settings' }
   | { type: 'terms' }
-  | { type: 'privacy' };
+  | { type: 'privacy' }
+  | { type: 'notfound' };
