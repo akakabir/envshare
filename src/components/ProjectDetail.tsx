@@ -55,6 +55,8 @@ import {
   Sprout,
   Leaf,
   LogOut,
+  RotateCcw,
+  Undo2,
 } from 'lucide-react';
 
 interface ProjectDetailProps {
@@ -136,6 +138,26 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
   const [isHistoryOpen, setIsHistoryOpen] = useState(initialTab === 'history');
   const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRevealed, setHistoryRevealed] = useState<{
+    [historyId: string]: { old?: string; new?: string; isRevealed?: boolean };
+  }>({});
+  const [allHistoryRevealed, setAllHistoryRevealed] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyToast, setHistoryToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [copiedHistoryKey, setCopiedHistoryKey] = useState<string | null>(null);
+
+  // Restore Modal State
+  const [restoreModal, setRestoreModal] = useState<{
+    isOpen: boolean;
+    entry: HistoryEntry | null;
+    targetValue: string;
+    isCustomValue: boolean;
+    isSensitive: boolean;
+    key: string;
+    actionType: 'restore_old' | 'restore_new' | 'recreate_deleted' | 'revert_create';
+    loading: boolean;
+    error: string | null;
+  } | null>(null);
 
   useEffect(() => {
     if (initialTab === 'history') {
@@ -352,10 +374,10 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
     return () => unsub();
   }, [projectId, activeEnvId, isHistoryOpen]);
 
-  // Log Change History Helper (never stores sensitive values in plain text!)
+  // Log Change History Helper (encrypts sensitive values with AES-256-GCM so authorized members can view diffs & restore)
   const recordHistory = async (
     key: string,
-    action: 'create' | 'update' | 'delete' | 'toggle_sensitivity' | 'import',
+    action: 'create' | 'update' | 'delete' | 'toggle_sensitivity' | 'import' | 'restore',
     actionLabel: string,
     isSensitive: boolean,
     oldValue?: string,
@@ -364,9 +386,25 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
     if (!project || !activeEnvId) return;
     const historyId = 'hist_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
 
-    // Mask sensitive values in history log
-    const safeOldValue = isSensitive && oldValue ? '••••••••' : oldValue;
-    const safeNewValue = isSensitive && newValue ? '••••••••' : newValue;
+    let storedOldValue = oldValue;
+    let storedNewValue = newValue;
+
+    if (isSensitive) {
+      if (oldValue && oldValue !== '••••••••' && oldValue !== '[Sensitive value]') {
+        try {
+          storedOldValue = await encryptSensitiveValue(oldValue, projectId);
+        } catch {
+          storedOldValue = oldValue;
+        }
+      }
+      if (newValue && newValue !== '••••••••' && newValue !== '[Sensitive value]') {
+        try {
+          storedNewValue = await encryptSensitiveValue(newValue, projectId);
+        } catch {
+          storedNewValue = newValue;
+        }
+      }
+    }
 
     const entry: HistoryEntry = {
       id: historyId,
@@ -376,8 +414,8 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       key,
       action,
       actionLabel,
-      oldValue: safeOldValue,
-      newValue: safeNewValue,
+      oldValue: storedOldValue,
+      newValue: storedNewValue,
       isSensitive,
       userId: user.uid,
       userEmail: user.email || 'user',
@@ -391,6 +429,255 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       );
     } catch (err) {
       console.error('Failed to record history log:', err);
+    }
+  };
+
+  // Toggle reveal for an individual history entry
+  const toggleRevealHistoryEntry = async (h: HistoryEntry) => {
+    const current = historyRevealed[h.id];
+    if (current?.isRevealed) {
+      setHistoryRevealed((prev) => ({
+        ...prev,
+        [h.id]: { ...prev[h.id], isRevealed: false },
+      }));
+      return;
+    }
+
+    let decryptedOld = h.oldValue || '';
+    let decryptedNew = h.newValue || '';
+
+    if (h.isSensitive) {
+      if (h.oldValue && h.oldValue !== '••••••••' && h.oldValue !== '[Sensitive value]') {
+        try {
+          decryptedOld = await decryptSensitiveValue(h.oldValue, projectId);
+        } catch {
+          decryptedOld = h.oldValue;
+        }
+      }
+      if (h.newValue && h.newValue !== '••••••••' && h.newValue !== '[Sensitive value]') {
+        try {
+          decryptedNew = await decryptSensitiveValue(h.newValue, projectId);
+        } catch {
+          decryptedNew = h.newValue;
+        }
+      }
+    }
+
+    setHistoryRevealed((prev) => ({
+      ...prev,
+      [h.id]: { old: decryptedOld, new: decryptedNew, isRevealed: true },
+    }));
+  };
+
+  // Toggle reveal for all history entries
+  const toggleRevealAllHistory = async () => {
+    if (allHistoryRevealed) {
+      setHistoryRevealed({});
+      setAllHistoryRevealed(false);
+      return;
+    }
+
+    const nextRevealed: { [id: string]: { old?: string; new?: string; isRevealed?: boolean } } = {};
+    for (const h of historyEntries) {
+      let decryptedOld = h.oldValue || '';
+      let decryptedNew = h.newValue || '';
+      if (h.isSensitive) {
+        if (h.oldValue && h.oldValue !== '••••••••' && h.oldValue !== '[Sensitive value]') {
+          try {
+            decryptedOld = await decryptSensitiveValue(h.oldValue, projectId);
+          } catch {
+            decryptedOld = h.oldValue;
+          }
+        }
+        if (h.newValue && h.newValue !== '••••••••' && h.newValue !== '[Sensitive value]') {
+          try {
+            decryptedNew = await decryptSensitiveValue(h.newValue, projectId);
+          } catch {
+            decryptedNew = h.newValue;
+          }
+        }
+      }
+      nextRevealed[h.id] = { old: decryptedOld, new: decryptedNew, isRevealed: true };
+    }
+    setHistoryRevealed(nextRevealed);
+    setAllHistoryRevealed(true);
+  };
+
+  // Open Restore Confirmation Modal
+  const openRestoreModal = async (h: HistoryEntry, target: 'old' | 'new') => {
+    const rawVal = target === 'old' ? h.oldValue : h.newValue;
+    let plainVal = rawVal || '';
+
+    if (h.isSensitive && rawVal && rawVal !== '••••••••' && rawVal !== '[Sensitive value]') {
+      if (historyRevealed[h.id]?.[target]) {
+        plainVal = historyRevealed[h.id][target]!;
+      } else {
+        try {
+          plainVal = await decryptSensitiveValue(rawVal, projectId);
+        } catch {
+          plainVal = rawVal;
+        }
+      }
+    }
+
+    const isLegacyMasked = plainVal === '••••••••' || plainVal === '[Sensitive value]';
+
+    let actionType: 'restore_old' | 'restore_new' | 'recreate_deleted' | 'revert_create' = 'restore_old';
+    if (h.action === 'delete') {
+      actionType = 'recreate_deleted';
+    } else if (h.action === 'create' && target === 'old') {
+      actionType = 'revert_create';
+    } else if (target === 'new') {
+      actionType = 'restore_new';
+    }
+
+    setRestoreModal({
+      isOpen: true,
+      entry: h,
+      targetValue: isLegacyMasked ? '' : plainVal,
+      isCustomValue: isLegacyMasked,
+      isSensitive: h.isSensitive,
+      key: h.key,
+      actionType,
+      loading: false,
+      error: null,
+    });
+  };
+
+  // Execute the restore action
+  const handleExecuteRestore = async () => {
+    if (!restoreModal || !activeEnvId || !project) return;
+    const { entry, targetValue, isSensitive, key, actionType } = restoreModal;
+    if (!entry) return;
+
+    setRestoreModal((prev) => (prev ? { ...prev, loading: true, error: null } : null));
+
+    try {
+      const existingVar = variables.find((v) => v.key.toUpperCase() === key.toUpperCase());
+      const now = new Date().toISOString();
+
+      if (actionType === 'revert_create') {
+        if (existingVar) {
+          let deletedPlain = existingVar.value;
+          if (existingVar.isSensitive) {
+            deletedPlain =
+              revealedValues[existingVar.id] ||
+              (await decryptSensitiveValue(existingVar.value, projectId).catch(() => existingVar.value));
+          }
+          await deleteDoc(
+            doc(db, 'projects', projectId, 'environments', activeEnvId, 'variables', existingVar.id)
+          );
+          setRevealedValues((prev) => {
+            const next = { ...prev };
+            delete next[existingVar.id];
+            return next;
+          });
+          await recordHistory(
+            key,
+            'delete',
+            'Reverted variable addition from history',
+            existingVar.isSensitive,
+            deletedPlain,
+            undefined
+          );
+        }
+      } else {
+        let finalEncryptedOrPlain = targetValue;
+        if (isSensitive) {
+          finalEncryptedOrPlain = await encryptSensitiveValue(targetValue, projectId);
+        }
+
+        let currentPlainVal = '';
+        if (existingVar) {
+          if (existingVar.isSensitive) {
+            currentPlainVal =
+              revealedValues[existingVar.id] ||
+              (await decryptSensitiveValue(existingVar.value, projectId).catch(() => '[Sensitive]'));
+          } else {
+            currentPlainVal = existingVar.value;
+          }
+
+          const varRef = doc(
+            db,
+            'projects',
+            projectId,
+            'environments',
+            activeEnvId,
+            'variables',
+            existingVar.id
+          );
+          await updateDoc(varRef, {
+            value: finalEncryptedOrPlain,
+            isSensitive,
+            updatedAt: now,
+            updatedBy: user.email || user.uid,
+          });
+
+          if (isSensitive) {
+            setRevealedValues((prev) => ({ ...prev, [existingVar.id]: targetValue }));
+          } else {
+            setRevealedValues((prev) => {
+              const next = { ...prev };
+              delete next[existingVar.id];
+              return next;
+            });
+          }
+
+          await recordHistory(
+            key,
+            'restore',
+            `Restored to ${entry.action === 'delete' ? 'pre-deletion' : 'historical'} value`,
+            isSensitive,
+            currentPlainVal,
+            targetValue
+          );
+        } else {
+          const varId = 'var_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+          const newVarData: EnvVariable = {
+            id: varId,
+            key,
+            value: finalEncryptedOrPlain,
+            isSensitive,
+            environmentId: activeEnvId,
+            projectId,
+            memberUids: project.memberUids,
+            createdAt: now,
+            updatedAt: now,
+            updatedBy: user.email || user.uid,
+          };
+
+          await setDoc(
+            doc(db, 'projects', projectId, 'environments', activeEnvId, 'variables', varId),
+            newVarData
+          );
+
+          if (isSensitive) {
+            setRevealedValues((prev) => ({ ...prev, [varId]: targetValue }));
+          }
+
+          await recordHistory(
+            key,
+            'restore',
+            'Restored deleted variable from history',
+            isSensitive,
+            undefined,
+            targetValue
+          );
+        }
+      }
+
+      setHistoryToast({
+        type: 'success',
+        message: `Successfully restored ${key} in ${activeEnv?.name}!`,
+      });
+      setRestoreModal(null);
+      setTimeout(() => {
+        setHistoryToast(null);
+      }, 4000);
+    } catch (err: any) {
+      setRestoreModal((prev) =>
+        prev ? { ...prev, loading: false, error: err.message || 'Failed to restore variable.' } : null
+      );
     }
   };
 
@@ -581,7 +868,18 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         });
 
         // Record history log
-        const oldPlain = editingVar.isSensitive ? (revealedValues[editingVar.id] || '[Sensitive value]') : editingVar.value;
+        let oldPlain = editingVar.value;
+        if (editingVar.isSensitive) {
+          if (revealedValues[editingVar.id]) {
+            oldPlain = revealedValues[editingVar.id];
+          } else {
+            try {
+              oldPlain = await decryptSensitiveValue(editingVar.value, projectId);
+            } catch {
+              oldPlain = editingVar.value;
+            }
+          }
+        }
         await recordHistory(
           rawKey,
           'update',
@@ -703,6 +1001,19 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
     if (!confirmed) return;
 
     try {
+      let deletedPlain = v.value;
+      if (v.isSensitive) {
+        if (revealedValues[v.id]) {
+          deletedPlain = revealedValues[v.id];
+        } else {
+          try {
+            deletedPlain = await decryptSensitiveValue(v.value, projectId);
+          } catch {
+            deletedPlain = v.value;
+          }
+        }
+      }
+
       await deleteDoc(
         doc(db, 'projects', projectId, 'environments', activeEnvId, 'variables', v.id)
       );
@@ -713,7 +1024,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
         'delete',
         'Deleted variable',
         v.isSensitive,
-        v.isSensitive ? '••••••••' : v.value,
+        deletedPlain,
         undefined
       );
 
@@ -963,7 +1274,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             'Imported new variable (.env)',
             isSens,
             undefined,
-            isSens ? '••••••••' : item.value
+            item.value
           );
         } else if (item.status === 'update' && item.existingVar) {
           // Updated variable: keep sensitive status
@@ -996,7 +1307,7 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
             'Imported updated value (.env)',
             isSens,
             item.oldValue,
-            isSens ? '••••••••' : item.value
+            item.value
           );
         }
       }
@@ -1589,6 +1900,18 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                                 </button>
 
                                 <button
+                                  onClick={() => {
+                                    setHistorySearch(v.key);
+                                    setIsHistoryOpen(true);
+                                    onTabChange?.('history');
+                                  }}
+                                  className="p-1.5 rounded-lg bg-white hover:bg-stone-100 text-stone-600 border border-stone-200 transition cursor-pointer"
+                                  title={`View change history and restore versions for ${v.key}`}
+                                >
+                                  <History className="w-3.5 h-3.5 text-stone-500 hover:text-emerald-700" />
+                                </button>
+
+                                <button
                                   onClick={() => openEditVarModal(v)}
                                   className="p-1.5 rounded-lg bg-white hover:bg-stone-100 text-stone-600 border border-stone-200 transition cursor-pointer"
                                   title="Edit variable"
@@ -1990,33 +2313,106 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
       )}
 
       {/* PART 5: CHANGE HISTORY TIMELINE DRAWER / MODAL */}
+      {/* PART 5: CHANGE HISTORY TIMELINE DRAWER / MODAL */}
       {isHistoryOpen && (
         <div className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-2xl w-full p-6 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-200">
-              <div className="flex items-center gap-2">
-                <History className="w-5 h-5 text-emerald-700" />
-                <h3 className="text-base font-bold text-stone-900">
-                  Change History — {activeEnv?.name}
-                </h3>
+          <div className="bg-white rounded-2xl shadow-xl border border-stone-200 max-w-3xl w-full p-6 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-start justify-between pb-3 border-b border-stone-200">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+                  <History className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold text-stone-900">
+                      Change History — {activeEnv?.name}
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-stone-100 text-stone-600">
+                      {historyEntries.length} {historyEntries.length === 1 ? 'change' : 'changes'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Audit log of all variable changes in this environment. Inspect diffs, reveal values, or restore previous versions.
+                  </p>
+                </div>
               </div>
-              <button
-                onClick={() => setIsHistoryOpen(false)}
-                className="text-stone-400 hover:text-stone-600 p-1.5 rounded-full hover:bg-stone-100 transition cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {historyEntries.some((h) => h.isSensitive) && (
+                  <button
+                    type="button"
+                    onClick={toggleRevealAllHistory}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-stone-100 hover:bg-stone-200 text-stone-700 transition cursor-pointer"
+                    title={allHistoryRevealed ? 'Mask all sensitive values' : 'Reveal all sensitive values'}
+                  >
+                    {allHistoryRevealed ? (
+                      <>
+                        <EyeOff className="w-3.5 h-3.5 text-stone-600" />
+                        <span>Mask All Secrets</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3.5 h-3.5 text-emerald-700" />
+                        <span>Reveal All Secrets</span>
+                      </>
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={() => setIsHistoryOpen(false)}
+                  className="text-stone-400 hover:text-stone-600 p-1.5 rounded-full hover:bg-stone-100 transition cursor-pointer"
+                  title="Close History"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <p className="text-xs text-stone-500 mt-2 mb-4">
-              Audit log of all additions, updates, deletions, and imports in this environment. Sensitive values are permanently masked.
-            </p>
+            {/* In-Modal Toast Notification */}
+            {historyToast && (
+              <div className="mt-3 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 flex items-center justify-between animate-slow-fade-in">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-semibold">{historyToast.message}</span>
+                </div>
+                <button
+                  onClick={() => setHistoryToast(null)}
+                  className="text-emerald-700 hover:text-emerald-950 p-1 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
-            <div className="flex-1 overflow-y-auto pr-1">
+            {/* Filter / Search Bar */}
+            <div className="mt-3 mb-2 flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                  placeholder="Filter history by variable key name (e.g. WHAT, API_KEY)..."
+                  className="w-full pl-8 pr-8 py-1.5 text-xs rounded-xl border border-stone-200 bg-stone-50/60 text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:bg-white transition"
+                />
+                {historySearch && (
+                  <button
+                    onClick={() => setHistorySearch('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Timeline List */}
+            <div className="flex-1 overflow-y-auto pr-1 my-2">
               {historyLoading ? (
                 <div className="p-8 space-y-4">
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-14 bg-stone-100 rounded-xl animate-pulse" />
+                    <div key={i} className="h-16 bg-stone-100 rounded-xl animate-pulse" />
                   ))}
                 </div>
               ) : historyEntries.length === 0 ? (
@@ -2025,94 +2421,323 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                   <p className="text-xs font-medium">No past changes logged for this environment.</p>
                 </div>
               ) : (
-                <div className="relative border-l-2 border-stone-200 ml-4 space-y-6 my-2">
-                  {historyEntries.map((h) => {
-                    const date = new Date(h.timestamp);
-                    const formattedDate = date.toLocaleDateString(undefined, {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    });
-                    const formattedTime = date.toLocaleTimeString(undefined, {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    });
+                (() => {
+                  const filtered = historyEntries.filter((h) => {
+                    if (!historySearch.trim()) return true;
+                    return h.key.toLowerCase().includes(historySearch.trim().toLowerCase());
+                  });
 
+                  if (filtered.length === 0) {
                     return (
-                      <div key={h.id} className="relative pl-6">
-                        {/* Timeline dot */}
-                        <div
-                          className={`absolute -left-1.5 top-1 w-3 h-3 rounded-full border-2 border-white ${
-                            h.action === 'create'
-                              ? 'bg-emerald-600'
-                              : h.action === 'update'
-                              ? 'bg-amber-600'
-                              : h.action === 'delete'
-                              ? 'bg-rose-500'
-                              : h.action === 'toggle_sensitivity'
-                              ? 'bg-teal-700'
-                              : 'bg-emerald-700'
-                          }`}
-                        />
-
-                        <div className="bg-stone-50 rounded-xl border border-stone-200/80 p-3.5 text-xs">
-                          <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold text-stone-900">{h.userEmail}</span>
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  h.action === 'create'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : h.action === 'update'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : h.action === 'delete'
-                                    ? 'bg-rose-100 text-rose-800'
-                                    : h.action === 'toggle_sensitivity'
-                                    ? 'bg-teal-100 text-teal-800'
-                                    : 'bg-stone-100 text-stone-800'
-                                }`}
-                              >
-                                {h.actionLabel}
-                              </span>
-                            </div>
-
-                            <span className="text-[11px] text-stone-400 flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {formattedDate} at {formattedTime}
-                            </span>
-                          </div>
-
-                          <div className="font-mono text-[11px] text-stone-700 mt-2 bg-white rounded-lg p-2.5 border border-stone-200 flex flex-col gap-1">
-                            <div className="flex items-center gap-1.5 font-bold text-stone-900">
-                              <span>KEY:</span>
-                              <span className="text-emerald-800">{h.key}</span>
-                              {h.isSensitive && (
-                                <span className="inline-flex items-center gap-0.5 text-[9px] font-sans font-medium px-2 py-0.2 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                                  <Lock className="w-2.5 h-2.5" /> Sensitive
-                                </span>
-                              )}
-                            </div>
-
-                            {h.oldValue && (
-                              <div className="text-rose-600 line-through break-all">
-                                Old: {h.oldValue}
-                              </div>
-                            )}
-
-                            {h.newValue && (
-                              <div className="text-emerald-800 break-all font-semibold">
-                                New: {h.newValue}
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                      <div className="py-12 text-center text-stone-400">
+                        <Search className="w-7 h-7 mx-auto mb-2 opacity-40" />
+                        <p className="text-xs font-medium">No history entries match "{historySearch}".</p>
                       </div>
                     );
-                  })}
-                </div>
+                  }
+
+                  return (
+                    <div className="relative border-l-2 border-stone-200 ml-4 space-y-6 my-2">
+                      {filtered.map((h) => {
+                        const date = new Date(h.timestamp);
+                        const formattedDate = date.toLocaleDateString(undefined, {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        });
+                        const formattedTime = date.toLocaleTimeString(undefined, {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        });
+
+                        const isItemRevealed = allHistoryRevealed || !!historyRevealed[h.id]?.isRevealed;
+                        const liveVar = variables.find((v) => v.key.toUpperCase() === h.key.toUpperCase());
+
+                        // Determine display old and new values:
+                        let displayOld = h.oldValue;
+                        let isOldLegacyMasked = false;
+                        if (h.isSensitive) {
+                          if (isItemRevealed) {
+                            if (historyRevealed[h.id]?.old !== undefined) {
+                              displayOld = historyRevealed[h.id]?.old;
+                            } else if (h.oldValue === '••••••••' || h.oldValue === '[Sensitive value]') {
+                              displayOld = '••••••••';
+                              isOldLegacyMasked = true;
+                            }
+                          } else {
+                            displayOld = '••••••••';
+                          }
+                        }
+
+                        let displayNew = h.newValue;
+                        let isNewLegacyMasked = false;
+                        if (h.isSensitive) {
+                          if (isItemRevealed) {
+                            if (historyRevealed[h.id]?.new !== undefined) {
+                              displayNew = historyRevealed[h.id]?.new;
+                            } else if (h.newValue === '••••••••' || h.newValue === '[Sensitive value]') {
+                              displayNew = '••••••••';
+                              isNewLegacyMasked = true;
+                            }
+                          } else {
+                            displayNew = '••••••••';
+                          }
+                        }
+
+                        return (
+                          <div key={h.id} className="relative pl-6">
+                            {/* Timeline dot */}
+                            <div
+                              className={`absolute -left-1.5 top-2.5 w-3 h-3 rounded-full border-2 border-white ${
+                                h.action === 'create'
+                                  ? 'bg-emerald-600'
+                                  : h.action === 'update'
+                                  ? 'bg-amber-600'
+                                  : h.action === 'delete'
+                                  ? 'bg-rose-500'
+                                  : h.action === 'toggle_sensitivity'
+                                  ? 'bg-teal-700'
+                                  : h.action === 'restore'
+                                  ? 'bg-indigo-600'
+                                  : 'bg-emerald-700'
+                              }`}
+                            />
+
+                            <div className="bg-stone-50 rounded-2xl border border-stone-200/90 p-4 text-xs transition shadow-2xs hover:border-stone-300">
+                              {/* Top metadata row */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-stone-900">{h.userEmail}</span>
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-semibold ${
+                                      h.action === 'create'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : h.action === 'update'
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : h.action === 'delete'
+                                        ? 'bg-rose-100 text-rose-800'
+                                        : h.action === 'toggle_sensitivity'
+                                        ? 'bg-teal-100 text-teal-800'
+                                        : h.action === 'restore'
+                                        ? 'bg-indigo-100 text-indigo-800'
+                                        : 'bg-stone-100 text-stone-800'
+                                    }`}
+                                  >
+                                    {h.actionLabel}
+                                  </span>
+                                </div>
+
+                                <span className="text-[11px] text-stone-400 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {formattedDate} at {formattedTime}
+                                </span>
+                              </div>
+
+                              {/* Variable Key & Live Environment Status */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pt-1 border-t border-stone-200/60">
+                                <div className="flex items-center gap-2 font-mono">
+                                  <span className="text-stone-400 font-sans text-[11px] font-medium">KEY:</span>
+                                  <span className="font-bold text-stone-900 text-xs">{h.key}</span>
+                                  {h.isSensitive && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-sans font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                                      <Lock className="w-2.5 h-2.5" /> Sensitive
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  {h.isSensitive && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleRevealHistoryEntry(h)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium bg-white hover:bg-stone-100 text-stone-700 border border-stone-200 transition cursor-pointer"
+                                      title={isItemRevealed ? 'Mask values' : 'Reveal sensitive values'}
+                                    >
+                                      {isItemRevealed ? (
+                                        <>
+                                          <EyeOff className="w-3 h-3 text-stone-500" />
+                                          <span>Mask</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Eye className="w-3 h-3 text-emerald-700" />
+                                          <span>Reveal</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+
+                                  {liveVar ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                      Live in {activeEnv?.name}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-stone-500 bg-stone-100 px-2 py-0.5 rounded-full border border-stone-200">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-stone-400"></span>
+                                      Not in {activeEnv?.name}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Diff Box: Old vs New Values */}
+                              <div className="font-mono text-xs space-y-2 bg-white rounded-xl p-3 border border-stone-200">
+                                {h.oldValue !== undefined && (
+                                  <div className="rounded-lg bg-rose-50/70 border border-rose-200/80 p-2.5 flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-[10px] font-sans font-semibold text-rose-700 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                                        <span>Previous Value (Old)</span>
+                                        {isOldLegacyMasked && (
+                                          <span className="text-[9px] font-normal text-rose-500 lowercase">
+                                            (masked in legacy log)
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-rose-900 line-through break-all text-xs font-mono">
+                                        {displayOld || <span className="italic font-sans text-stone-400">empty</span>}
+                                      </div>
+                                    </div>
+                                    {displayOld && displayOld !== '••••••••' && (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          await navigator.clipboard.writeText(displayOld!);
+                                          setCopiedHistoryKey(`old_${h.id}`);
+                                          setTimeout(() => setCopiedHistoryKey(null), 2000);
+                                        }}
+                                        className="shrink-0 p-1 rounded hover:bg-rose-100 text-rose-600 transition cursor-pointer"
+                                        title="Copy old value"
+                                      >
+                                        {copiedHistoryKey === `old_${h.id}` ? (
+                                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+
+                                {h.newValue !== undefined && (
+                                  <div className="rounded-lg bg-emerald-50/70 border border-emerald-200/80 p-2.5 flex items-start justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-[10px] font-sans font-semibold text-emerald-800 uppercase tracking-wider mb-0.5 flex items-center gap-1">
+                                        <span>New Value (New)</span>
+                                        {isNewLegacyMasked && (
+                                          <span className="text-[9px] font-normal text-emerald-600 lowercase">
+                                            (masked in legacy log)
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="text-emerald-950 font-semibold break-all text-xs font-mono">
+                                        {displayNew || <span className="italic font-sans text-stone-400">empty</span>}
+                                      </div>
+                                    </div>
+                                    {displayNew && displayNew !== '••••••••' && (
+                                      <button
+                                        type="button"
+                                        onClick={async () => {
+                                          await navigator.clipboard.writeText(displayNew!);
+                                          setCopiedHistoryKey(`new_${h.id}`);
+                                          setTimeout(() => setCopiedHistoryKey(null), 2000);
+                                        }}
+                                        className="shrink-0 p-1 rounded hover:bg-emerald-100 text-emerald-700 transition cursor-pointer"
+                                        title="Copy new value"
+                                      >
+                                        {copiedHistoryKey === `new_${h.id}` ? (
+                                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                        ) : (
+                                          <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Restore Actions */}
+                              <div className="mt-3 pt-2.5 border-t border-stone-200/70 flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {/* Update or Import: Restore old value or re-apply new value */}
+                                  {(h.action === 'update' || h.action === 'import' || h.action === 'restore') && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => openRestoreModal(h, 'old')}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs transition cursor-pointer"
+                                        title="Restore environment variable to the value prior to this change"
+                                      >
+                                        <RotateCcw className="w-3.5 h-3.5" />
+                                        <span>Restore Previous Value</span>
+                                      </button>
+
+                                      {h.newValue && (
+                                        <button
+                                          type="button"
+                                          onClick={() => openRestoreModal(h, 'new')}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-stone-700 bg-white hover:bg-stone-100 border border-stone-300 transition cursor-pointer"
+                                          title="Restore or apply this new value"
+                                        >
+                                          <RotateCcw className="w-3 h-3 text-stone-500" />
+                                          <span>Apply New Value</span>
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {/* Delete: Restore the deleted variable back to life */}
+                                  {h.action === 'delete' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openRestoreModal(h, 'old')}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs transition cursor-pointer"
+                                      title="Recreate deleted variable in this environment"
+                                    >
+                                      <RotateCcw className="w-3.5 h-3.5" />
+                                      <span>Restore Deleted Variable</span>
+                                    </button>
+                                  )}
+
+                                  {/* Create: Revert addition or restore initial value */}
+                                  {h.action === 'create' && (
+                                    <>
+                                      {liveVar ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => openRestoreModal(h, 'old')}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 transition cursor-pointer"
+                                          title="Delete this variable to undo its creation"
+                                        >
+                                          <Undo2 className="w-3.5 h-3.5" />
+                                          <span>Undo Creation (Delete)</span>
+                                        </button>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => openRestoreModal(h, 'new')}
+                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-700 hover:bg-emerald-800 text-white shadow-2xs transition cursor-pointer"
+                                          title="Restore this created variable"
+                                        >
+                                          <RotateCcw className="w-3.5 h-3.5" />
+                                          <span>Restore Variable</span>
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()
               )}
             </div>
 
+            {/* Modal Bottom Bar */}
             <div className="pt-3 border-t border-stone-200 flex justify-end">
               <button
                 type="button"
@@ -2123,6 +2748,182 @@ export const ProjectDetail: React.FC<ProjectDetailProps> = ({
                 className="px-5 py-2 text-xs font-semibold rounded-full text-stone-700 bg-white hover:bg-stone-50 border border-stone-300 transition cursor-pointer"
               >
                 Close History
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESTORE CONFIRMATION MODAL */}
+      {restoreModal?.isOpen && (
+        <div
+          className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-slow-fade-in"
+          onClick={() => {
+            if (!restoreModal.loading) setRestoreModal(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl border border-stone-200 max-w-lg w-full p-6 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                  restoreModal.actionType === 'revert_create'
+                    ? 'bg-rose-50 text-rose-700'
+                    : 'bg-emerald-50 text-emerald-700'
+                }`}
+              >
+                {restoreModal.actionType === 'revert_create' ? (
+                  <Undo2 className="w-5 h-5" />
+                ) : (
+                  <RotateCcw className="w-5 h-5" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-stone-900">
+                  {restoreModal.actionType === 'revert_create'
+                    ? 'Undo Variable Creation'
+                    : restoreModal.actionType === 'recreate_deleted'
+                    ? 'Restore Deleted Variable'
+                    : 'Restore Environment Variable'}
+                </h3>
+                <p className="text-xs text-stone-500">
+                  Target environment: <span className="font-semibold text-stone-800">{activeEnv?.name}</span>
+                </p>
+              </div>
+            </div>
+
+            {restoreModal.error && (
+              <div className="mb-4 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>{restoreModal.error}</span>
+              </div>
+            )}
+
+            <div className="space-y-4 my-4">
+              {/* Variable Key */}
+              <div className="bg-stone-50 rounded-xl p-3 border border-stone-200">
+                <div className="text-[11px] text-stone-500 mb-1">Variable Key</div>
+                <div className="font-mono font-bold text-stone-900 text-sm flex items-center gap-2">
+                  <span>{restoreModal.key}</span>
+                  {restoreModal.isSensitive && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-sans font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                      <Lock className="w-2.5 h-2.5" /> Sensitive
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Description */}
+              {restoreModal.actionType === 'revert_create' ? (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900">
+                  This will remove <strong>{restoreModal.key}</strong> from the <strong>{activeEnv?.name}</strong> environment.
+                </div>
+              ) : (
+                <>
+                  {restoreModal.isCustomValue && (
+                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900">
+                      This change was recorded in an earlier version where sensitive values were masked as bullets before saving.
+                      Please review or enter the value you wish to restore:
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">
+                      Value to Restore
+                    </label>
+                    <textarea
+                      value={restoreModal.targetValue}
+                      onChange={(e) =>
+                        setRestoreModal((prev) =>
+                          prev ? { ...prev, targetValue: e.target.value } : null
+                        )
+                      }
+                      rows={3}
+                      placeholder="Enter value to restore..."
+                      className="w-full px-3.5 py-2 font-mono text-xs rounded-xl border border-stone-300 text-stone-900 placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600"
+                    />
+                  </div>
+
+                  {/* Sensitivity Toggle */}
+                  <div className="bg-stone-50 rounded-xl p-3 border border-stone-200 flex items-center justify-between">
+                    <div>
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-stone-800">
+                        {restoreModal.isSensitive ? (
+                          <Lock className="w-3.5 h-3.5 text-amber-600" />
+                        ) : (
+                          <Unlock className="w-3.5 h-3.5 text-stone-400" />
+                        )}
+                        <span>Sensitive Variable</span>
+                      </div>
+                      <p className="text-[11px] text-stone-500 mt-0.5">
+                        {restoreModal.isSensitive
+                          ? 'Encrypted with AES-256-GCM before saving to database.'
+                          : 'Stored as plain text.'}
+                      </p>
+                    </div>
+
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4">
+                      <input
+                        type="checkbox"
+                        checked={restoreModal.isSensitive}
+                        onChange={(e) =>
+                          setRestoreModal((prev) =>
+                            prev ? { ...prev, isSensitive: e.target.checked } : null
+                          )
+                        }
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                    </label>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-3 flex items-center justify-end gap-2 border-t border-stone-100">
+              <button
+                type="button"
+                onClick={() => setRestoreModal(null)}
+                disabled={restoreModal.loading}
+                className="px-4 py-2 text-xs font-medium rounded-full text-stone-700 bg-white hover:bg-stone-50 border border-stone-300 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteRestore}
+                disabled={
+                  restoreModal.loading ||
+                  (!restoreModal.targetValue && restoreModal.actionType !== 'revert_create')
+                }
+                className={`px-5 py-2 text-xs font-semibold rounded-full text-white transition cursor-pointer flex items-center gap-1.5 ${
+                  restoreModal.actionType === 'revert_create'
+                    ? 'bg-rose-600 hover:bg-rose-700'
+                    : 'bg-emerald-700 hover:bg-emerald-800'
+                } disabled:opacity-50`}
+              >
+                {restoreModal.loading ? (
+                  <>
+                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    {restoreModal.actionType === 'revert_create' ? (
+                      <Undo2 className="w-3.5 h-3.5" />
+                    ) : (
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    )}
+                    <span>
+                      {restoreModal.actionType === 'revert_create'
+                        ? 'Confirm Revert'
+                        : 'Confirm Restore'}
+                    </span>
+                  </>
+                )}
               </button>
             </div>
           </div>

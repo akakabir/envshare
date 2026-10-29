@@ -82,7 +82,7 @@
         "environmentId": { "type": "string" },
         "memberUids": { "type": "array" },
         "key": { "type": "string" },
-        "action": { "type": "string", "enum": ["create", "update", "delete", "toggle_sensitivity", "import"] },
+        "action": { "type": "string", "enum": ["create", "update", "delete", "toggle_sensitivity", "import", "restore"] },
         "actionLabel": { "type": "string" },
         "oldValue": { "type": "string" },
         "newValue": { "type": "string" },

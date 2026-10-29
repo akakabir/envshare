@@ -53,7 +53,7 @@ export interface HistoryEntry {
   environmentId: string;
   memberUids: string[];
   key: string;
-  action: 'create' | 'update' | 'delete' | 'toggle_sensitivity' | 'import';
+  action: 'create' | 'update' | 'delete' | 'toggle_sensitivity' | 'import' | 'restore';
   actionLabel: string;
   oldValue?: string;
   newValue?: string;
