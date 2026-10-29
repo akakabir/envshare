@@ -182,7 +182,3 @@ envshare/
 npm run build
 firebase deploy --only hosting
 ```
-
-## License
-
-Add your license here.
